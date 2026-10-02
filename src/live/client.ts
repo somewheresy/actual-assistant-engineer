@@ -15,6 +15,8 @@ type Pending = { resolve: (r: BatchResponse) => void; reject: (e: Error) => void
 export class LiveClient {
   private socket?: Socket<undefined>;
   private buf = "";
+  private outbuf = Buffer.alloc(0);
+  private decoder = new TextDecoder();
   private nextId = 1;
   private pending = new Map<number, Pending>();
   onEvent?: (e: LiveEvent) => void;
@@ -26,7 +28,8 @@ export class LiveClient {
     this.socket = await Bun.connect({
       unix: this.path,
       socket: {
-        data: (_s, chunk) => this.receive(chunk.toString()),
+        data: (_s, chunk) => this.receive(this.decoder.decode(chunk, { stream: true })),
+        drain: () => this.flush(),
         close: () => this.closed(new Error("Live connection closed")),
         error: (_s, err) => this.closed(err),
       },
@@ -44,6 +47,11 @@ export class LiveClient {
     const r = res.results[0];
     if (!res.ok || !r) throw new Error(`${op.op}: ${r?.error ?? "failed"}`);
     return r as T;
+  }
+
+  /** Development: hot-reload the control surface's Python code. */
+  reload(): Promise<BatchResponse> {
+    return this.request({ reload: true }, 5_000);
   }
 
   subscribe(): Promise<BatchResponse> {
@@ -65,8 +73,16 @@ export class LiveClient {
         reject(new Error(`request ${id} timed out after ${timeoutMs}ms (outcome unknown)`));
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      socket.write(JSON.stringify({ id, ...body }) + "\n");
+      this.outbuf = Buffer.concat([this.outbuf, Buffer.from(JSON.stringify({ id, ...body }) + "\n")]);
+      this.flush();
     });
+  }
+
+  // Bun sockets don't buffer: write() may accept only part of the data.
+  private flush() {
+    if (!this.socket || this.outbuf.length === 0) return;
+    const n = this.socket.write(this.outbuf);
+    if (n > 0) this.outbuf = this.outbuf.subarray(n);
   }
 
   private receive(chunk: string) {

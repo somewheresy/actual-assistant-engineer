@@ -2,7 +2,8 @@ import { LiveClient, type Op } from "./live/client";
 
 const usage = `usage:
   aae '<op json>' ['<op json>' ...]   run ops as one batch
-  aae events                         stream Live events`;
+  aae events                         stream Live events
+  aae reload                         reload control surface code (development)`;
 
 const args = process.argv.slice(2);
 if (args.length === 0) {
@@ -11,7 +12,10 @@ if (args.length === 0) {
 }
 
 const live = await new LiveClient().connect();
-if (args[0] === "events") {
+if (args[0] === "reload") {
+  console.log(JSON.stringify(await live.reload()));
+  live.close();
+} else if (args[0] === "events") {
   live.onEvent = (e) => console.log(JSON.stringify(e));
   await live.subscribe();
 } else {

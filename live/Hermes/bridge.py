@@ -6,8 +6,10 @@ during the control surface update tick. Performance gestures arrive as MIDI
 on channel 16 and are executed immediately in receive_midi.
 """
 
+import importlib
 import json
 import os
+import select
 import socket
 import time
 import traceback
@@ -22,6 +24,8 @@ SOCK_PATH = os.path.join(SOCK_DIR, "live.sock")
 PROTOCOL = 1
 PERF_CHANNEL = 15  # MIDI channel 16, zero-based
 MAX_LINE = 64 * 1024 * 1024
+SOCK_BUF = 4 * 1024 * 1024
+PARTIAL_WAIT = 0.03  # max seconds per tick spent finishing a partially received request
 
 
 class Client:
@@ -30,6 +34,7 @@ class Client:
         self.inbuf = b""
         self.outbuf = b""
         self.subscribed = False
+        self.first_byte = None
 
 
 class Hermes(ControlSurface):
@@ -65,16 +70,29 @@ class Hermes(ControlSurface):
             except (BlockingIOError, InterruptedError):
                 break
             conn.setblocking(False)
+            # The default ~8KB buffers would spread one large batch across several 100ms ticks.
+            for opt in (socket.SO_RCVBUF, socket.SO_SNDBUF):
+                try:
+                    conn.setsockopt(socket.SOL_SOCKET, opt, SOCK_BUF)
+                except OSError:
+                    pass
             self._clients.append(Client(conn))
         for client in list(self._clients):
             self._read(client)
             self._flush(client)
 
     def _read(self, client):
+        deadline = time.perf_counter() + PARTIAL_WAIT
         while True:
             try:
                 chunk = client.conn.recv(1 << 20)
             except (BlockingIOError, InterruptedError):
+                # A request is mid-flight: the sender refills its small buffer within
+                # microseconds, so wait briefly rather than a whole 100ms tick.
+                pending = client.inbuf and not client.inbuf.endswith(b"\n")
+                if pending and time.perf_counter() < deadline:
+                    select.select([client.conn], [], [], 0.002)
+                    continue
                 break
             except OSError:
                 self._drop(client)
@@ -82,6 +100,8 @@ class Hermes(ControlSurface):
             if not chunk:
                 self._drop(client)
                 return
+            if not client.inbuf:
+                client.first_byte = time.perf_counter()
             client.inbuf += chunk
             if len(client.inbuf) > MAX_LINE:
                 self._drop(client)
@@ -89,7 +109,11 @@ class Hermes(ControlSurface):
         while b"\n" in client.inbuf:
             line, client.inbuf = client.inbuf.split(b"\n", 1)
             if line.strip():
-                self._send(client, self._handle(client, line))
+                recv_ms = (time.perf_counter() - client.first_byte) * 1000 if client.first_byte else 0
+                client.first_byte = time.perf_counter() if client.inbuf else None
+                msg = self._handle(client, line)
+                msg["recv_ms"] = round(recv_ms, 1)
+                self._send(client, msg)
 
     def _handle(self, client, line):
         t0 = time.perf_counter()
@@ -101,6 +125,8 @@ class Hermes(ControlSurface):
         if req.get("subscribe"):
             client.subscribed = True
             return {"id": rid, "ok": True, "subscribed": True}
+        if req.get("reload"):
+            return dict(self._reload(), id=rid)
         results, ok = self._ctx.run_batch(req.get("ops", []), req.get("undo_step", True))
         return {
             "id": rid,
@@ -108,6 +134,19 @@ class Hermes(ControlSurface):
             "results": results,
             "exec_ms": round((time.perf_counter() - t0) * 1000, 3),
         }
+
+    def _reload(self):
+        """Development: reload ops and bridge code in place, keeping the socket and clients."""
+        from . import bridge
+
+        self._ctx.detach_listeners()
+        importlib.reload(ops)
+        module = importlib.reload(bridge)
+        self.__class__ = module.Hermes
+        self._ctx = module.ops.Context(self)
+        self._ctx.attach_listeners()
+        self.log_message("Hermes: reloaded")
+        return {"ok": True, "reloaded": True}
 
     def _send(self, client, msg):
         client.outbuf += (json.dumps(msg, separators=(",", ":"), default=str) + "\n").encode()
