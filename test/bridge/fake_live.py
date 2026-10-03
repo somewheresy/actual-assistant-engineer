@@ -46,10 +46,26 @@ class DeviceParameter(Listenable):
 
 class AutomationEnvelope:
     def __init__(self):
-        self.steps = []  # (time, duration, value)
+        self.steps = []  # (time, duration, value), sorted by time, non-overlapping
 
     def insert_step(self, time, duration, value):
-        self.steps.append((time, duration, value))
+        """Write a constant over [time, time+duration), replacing overlapping range."""
+        time, duration = float(time), float(duration)
+        if duration <= 0:
+            return
+        end = time + duration
+        kept = []
+        for t, d, v in self.steps:
+            if t >= end or t + d <= time:
+                kept.append((t, d, v))
+                continue
+            if t < time:
+                kept.append((t, time - t, v))
+            if t + d > end:
+                kept.append((end, t + d - end, v))
+        kept.append((time, duration, value))
+        kept.sort(key=lambda s: s[0])
+        self.steps = kept
 
     def value_at_time(self, t):
         before = [s for s in self.steps if s[0] <= t]
