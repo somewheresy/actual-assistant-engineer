@@ -11,6 +11,7 @@ Unsaved work is never discarded implicitly: the caller's on_unsaved decides.
 
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -23,6 +24,29 @@ class SetError(Exception):
     pass
 
 
+class _WindowNotReady(SetError):
+    pass
+
+
+def _is_windows():
+    return sys.platform == "win32"
+
+
+def _windows_ui():
+    from .windows_ui import LiveUI
+    return LiveUI(live_app.bundle())
+
+
+def _win_call(method, *args, **kwargs):
+    from .windows_ui import UIError, WindowNotReady
+    try:
+        return getattr(_windows_ui(), method)(*args, **kwargs)
+    except WindowNotReady as exc:
+        raise _WindowNotReady(str(exc)) from exc
+    except (UIError, OSError) as exc:
+        raise SetError(str(exc)) from exc
+
+
 def _osa(script, timeout=15):
     r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=timeout)
     return r.stdout.strip()
@@ -33,12 +57,17 @@ def _ui(script):
 
 
 def _menu(item):
+    if _is_windows():
+        return _win_call("menu", item)
     out = _ui('click menu item "%s" of menu "File" of menu bar 1' % item)
     if not out:
         raise SetError("could not use Live's File > %s (is Live running, and accessibility allowed?)" % item)
 
 
 def _main_title():
+    if _is_windows():
+        state = _win_call("snapshot")
+        return state.name if state else None
     for name in _ui("get name of windows").split(", "):
         if name and name not in ("Settings", "Save", "Open"):
             return name
@@ -58,6 +87,8 @@ def _click(prefix):
 
 
 def _handle_dialogs(on_unsaved, deadline=20.0):
+    if _is_windows():
+        return _handle_windows_dialogs(on_unsaved, deadline)
     answered = []
     end = time.time() + deadline
     while time.time() < end:
@@ -85,10 +116,70 @@ def _handle_dialogs(on_unsaved, deadline=20.0):
     raise SetError("Live kept showing dialogs")
 
 
+def _handle_windows_dialogs(on_unsaved, deadline):
+    answered = []
+    end = time.monotonic() + deadline
+    while time.monotonic() < end:
+        state = _win_call("snapshot")
+        if state is None or not state.dialogs:
+            return answered
+        if len(state.dialogs) != 1:
+            raise SetError("multiple Live dialogs; inspect Live before continuing")
+        dialog = state.dialogs[0]
+        path = None
+        cancel_error = None
+        if dialog.text.startswith("Save changes"):
+            if on_unsaved == "discard":
+                label = "Don't Save"
+            elif on_unsaved == "save" and (path := _current_path()):
+                label = "Save"
+                before = Path(path).stat().st_mtime_ns
+            else:
+                label = "Cancel"
+                cancel_error = "Live asked: %s; unsaved work kept. Choose save or discard explicitly; save requires a known file." % dialog.text
+        elif dialog.text.startswith("This action will stop audio"):
+            label = "OK"
+        elif "outside of a Project folder" in dialog.text:
+            label = "Cancel"
+            cancel_error = "this Set has no Project folder; use save_as with a name"
+        else:
+            raise SetError("unexpected Live dialog: %s" % dialog.text)
+        _win_call("click", label, expected_text=dialog.text)
+        # Read back dismissal. Never invoke the same still-visible dialog twice.
+        while time.monotonic() < end:
+            after = _win_call("snapshot")
+            if after is None:
+                raise SetError("Live disappeared while answering a dialog; outcome unknown")
+            if not any(d.text == dialog.text for d in after.dialogs):
+                break
+            time.sleep(0.1)
+        else:
+            raise SetError("Live did not dismiss its dialog; outcome unknown")
+        if path:
+            while Path(path).stat().st_mtime_ns == before and time.monotonic() < end:
+                time.sleep(0.1)
+            if Path(path).stat().st_mtime_ns == before:
+                raise SetError("Live did not write %s; save outcome unknown" % path)
+        if cancel_error:
+            raise SetError(cancel_error)
+        answered.append(dialog.text)
+    raise SetError("Live kept showing dialogs")
+
+
 _opened = {}  # Set name -> path for Sets opened or created through this module
+_windows_opened = None  # Only the active (process/window identity, name, exact path).
 
 
 def _current_path():
+    global _windows_opened
+    if _is_windows():
+        state = _win_call("snapshot")
+        if _windows_opened:
+            identity, name, path = _windows_opened
+            if state and state.identity == identity and state.name == name and Path(path).is_file():
+                return path
+            _windows_opened = None
+        return None
     title = _main_title()
     path = _opened.get(title)
     return path if path and Path(path).exists() else None
@@ -120,6 +211,8 @@ def info():
 
 
 def open_set(path, on_unsaved="cancel"):
+    if _is_windows():
+        return _open_windows(path, on_unsaved)
     path = Path(path).expanduser()
     if not path.exists():
         raise SetError("no Set at %s" % path)
@@ -131,7 +224,68 @@ def open_set(path, on_unsaved="cancel"):
     return {"name": path.stem, "path": str(path), "answered": answered, "tracks": live.get("tracks")}
 
 
+def _open_windows(path, on_unsaved, timeout=60.0):
+    global _windows_opened
+    try:
+        return _open_windows_impl(path, on_unsaved, timeout)
+    except (SetError, OSError) as exc:
+        # An uncertain transition must not leave a same-name path association.
+        _windows_opened = None
+        raise SetError(str(exc)) from exc
+
+
+def _open_windows_impl(path, on_unsaved, timeout):
+    global _windows_opened
+    if on_unsaved not in ("cancel", "save", "discard"):
+        raise SetError("on_unsaved must be cancel, save, or discard")
+    path = Path(path).expanduser().resolve()
+    if not path.is_file() or path.suffix.lower() != ".als":
+        raise SetError("no Set at %s" % path)
+    previous = _win_call("snapshot")
+    if previous and previous.dialogs:
+        raise SetError("Live already has a dialog; resolve it before opening another Set")
+    if previous and previous.name == path.stem and _current_path() != str(path):
+        raise SetError("cannot distinguish same-name Sets by Live's title; open a differently named Set first")
+    try:
+        process = subprocess.Popen([str(live_app.bundle()), str(path)], shell=False)
+    except OSError as exc:
+        raise SetError("cannot launch Live: %s" % exc) from exc
+    answered = []
+    transitioned = previous is None or previous.name != path.stem
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if process.poll() not in (None, 0):
+            raise SetError("Live launch failed; inspect Live before retrying")
+        try:
+            state = _win_call("snapshot")
+        except _WindowNotReady:
+            # No interaction or success until a recognized window is readable.
+            time.sleep(0.1)
+            continue
+        if state and state.dialogs:
+            answered.extend(_handle_windows_dialogs(on_unsaved, max(0, end - time.monotonic())))
+            continue
+        connected = live_client.available()
+        if not connected:
+            transitioned = True
+        if transitioned and state and state.name == path.stem and connected:
+            try:
+                res = live_client.batch([{"op": "info"}], timeout=5.0, undo_step=False)
+            except (live_client.LiveUnavailable, OSError, TimeoutError):
+                res = {}
+            if res.get("ok") and res.get("results"):
+                after = _win_call("snapshot")
+                if not after or after.identity != state.identity or after.name != state.name or after.dialogs:
+                    raise SetError("Live changed during open verification; inspect Live before retrying")
+                _windows_opened = (state.identity, state.name, str(path))
+                return {"name": path.stem, "path": str(path), "answered": answered, "tracks": res["results"][0].get("tracks")}
+        time.sleep(0.1)
+    raise SetError("Live did not confirm the requested Set and Hermes bridge in time; inspect Live before retrying")
+
+
 def new(name, directory=None, on_unsaved="cancel"):
+    if _is_windows() and on_unsaved not in ("cancel", "save", "discard"):
+        raise SetError("on_unsaved must be cancel, save, or discard")
     folder, path = _project_path(name, directory or DEFAULT_DIR)
     if path.exists():
         raise SetError("%s already exists; pick another name or open it" % path)
@@ -144,11 +298,15 @@ def save():
     path = _current_path()
     if not path:
         raise SetError("the open Set wasn't created or opened by Hermes, so its file is unknown; use save_as with a name")
-    before = Path(path).stat().st_mtime
+    before = Path(path).stat().st_mtime_ns
     _menu("Save Live Set")
     _handle_dialogs("cancel")
     for _ in range(40):
-        if Path(path).stat().st_mtime > before:
+        if _is_windows():
+            _handle_dialogs("cancel")
+            if _current_path() != path:
+                raise SetError("Live's active document changed during save; outcome unknown")
+        if Path(path).stat().st_mtime_ns > before:
             return {"name": Path(path).stem, "path": path, "saved": True}
         time.sleep(0.25)
     raise SetError("Live did not write %s" % path)
@@ -156,11 +314,14 @@ def save():
 
 def save_as(name, directory=None):
     """Save the open Set, then continue under a new name in its own Project folder."""
-    save()
+    saved = save()
     folder, path = _project_path(name, directory or DEFAULT_DIR)
     if path.exists():
         raise SetError("%s already exists; pick another name" % path)
+    source = _current_path()
+    if _is_windows() and source != saved["path"]:
+        raise SetError("Live's active document changed during save_as; no copy made")
     (folder / "Ableton Project Info").mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(_current_path(), path)
+    shutil.copyfile(source, path)
     out = open_set(path, "cancel")
     return dict(out, saved=True)
