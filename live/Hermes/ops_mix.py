@@ -110,8 +110,9 @@ def _insert_device(ctx, track, name=None, index=-1, expect=None, device=None):
 def _delete_device(ctx, track, device, expect=None):
     t = ctx.track(track, expect)
     d, idx = _device_index(t, device)
+    name = d.name  # the object is invalid once Live deletes the device
     t.delete_device(idx)
-    return {"deleted": d.name}
+    return {"deleted": name}
 
 
 @op("duplicate_device")

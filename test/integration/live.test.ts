@@ -166,12 +166,19 @@ describe.skipIf(!existsSync(SOCK_PATH))("Hermes bridge against Live", () => {
     const arr = await run({ op: "arrangement", tracks: [M] });
     const spans = arr.tracks[0].clips.map((c: any) => [c.start, c.end]);
     expect(spans).toEqual([[64, 68], [80, 88], [88, 92]]);
+    // Locators take three Live ticks each (move, add, name), so wait for the queue to drain.
     const before = arr.locators.length;
     await run({ op: "locator", time: 96, name: "IT Mark" });
+    await Bun.sleep(600);
     expect((await run({ op: "arrangement" })).locators.some((l: any) => l.name === "IT Mark" && l.time === 96)).toBe(true);
-    await run({ op: "locator", time: 96, name: "IT Mark" }); // existing locator: renamed, not duplicated
-    expect((await run({ op: "arrangement" })).locators.length).toBe(before + 1);
-    await run({ op: "call", path: "song", method: "set_or_delete_cue" }); // song time is at 96: removes it
+    await run({ op: "locator", time: 96, name: "IT Mark 2" }); // existing locator: renamed, not duplicated
+    await Bun.sleep(600);
+    const renamed = (await run({ op: "arrangement" })).locators;
+    expect(renamed.length).toBe(before + 1);
+    expect(renamed.find((l: any) => l.time === 96).name).toBe("IT Mark 2");
+    await run({ op: "delete_locator", time: 96 });
+    await Bun.sleep(600);
+    expect((await run({ op: "arrangement" })).locators.length).toBe(before);
     await run({ op: "clear_arrangement", track: M, start: 60 });
     expect((await run({ op: "arrangement", tracks: [M] })).tracks[0].clips).toHaveLength(0);
   });

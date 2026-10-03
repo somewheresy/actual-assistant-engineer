@@ -40,9 +40,9 @@ def test_arrange_scenes_fills_sections_and_names_locators(run, song):
     assert ok and results[0]["end"] == 24.0
     starts = [c.start_time for c in song.tracks[0].arrangement_clips]
     assert starts == [0.0, 4.0, 8.0, 16.0]
-    # 3-beat clip repeated into a 16-beat section: 6 copies, the last trimmed to end at 24.
+    # 3-beat clip repeated into a 16-beat section: 5 full copies plus a new 1-beat clip ending at 24.
     t1 = song.tracks[1].arrangement_clips
-    assert len(t1) == 6 and t1[-1].loop_end - t1[-1].loop_start == 1.0
+    assert len(t1) == 6 and (t1[-1].start_time, t1[-1].end_time) == (23.0, 24.0)
     assert [(c.time, c.name) for c in song.cue_points] == [(0.0, "Intro"), (8.0, "Drop")]
 
 

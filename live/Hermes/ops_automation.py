@@ -103,6 +103,10 @@ def _automate(ctx, track, slot=None, arrangement=None, target=None, points=(), c
     # Points may use display values ("500 Hz", "-6 dB"); convert to raw before ramping.
     points = [[b, param_value(param, v)] for b, v in points]
     steps = ramp_steps(points, curve, resolution)
+    # Hold the last value to the clip's end; past its last step Live falls back to the base value.
+    if steps:
+        last_t, _, last_v = steps[-1]
+        steps[-1] = (last_t, max(float(resolution), clip.length - last_t), last_v)
     if clear:
         clip.clear_envelope(param)
     if clip.automation_envelope(param) is None:

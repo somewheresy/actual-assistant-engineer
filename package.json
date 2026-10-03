@@ -6,7 +6,8 @@
     "aae": "bun run src/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "test:bridge": "cd test/bridge && uv run --with pytest python -m pytest -q"
+    "test:bridge": "cd test/bridge && uv run --with pytest python -m pytest -q",
+    "test:live": "bun test test/integration"
   },
   "devDependencies": {
     "@types/bun": "^1.4.2",

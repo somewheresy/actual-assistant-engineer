@@ -689,18 +689,25 @@ def _arrangement_clip(ctx, track, start, length, name=None, color=None, notes=()
 
 
 def _place(track, clip, start, bars_beats):
-    """Copy a session clip onto the timeline, repeating it to fill the span."""
+    """Copy a session clip onto the timeline, repeating it to fill the span exactly."""
     placed, t = 0, float(start)
     end = float(start) + float(bars_beats)
     step = clip.length
     while t < end - 1e-6:
-        track.duplicate_clip_to_arrangement(clip, t)
+        remaining = end - t
+        if remaining >= step - 1e-6 or not clip.is_midi_clip:
+            track.duplicate_clip_to_arrangement(clip, t)
+        else:
+            # A partial copy: Live can't shorten an arrangement clip, so write a new one of the exact length.
+            part = track.create_midi_clip(t, remaining)
+            part.name, part.color = clip.name, clip.color
+            notes = [n for n in clip.get_notes_extended(0, 128, 0.0, remaining)]
+            part.add_new_notes(tuple(
+                Live.Clip.MidiNoteSpecification(pitch=n.pitch, start_time=n.start_time, duration=min(n.duration, remaining - n.start_time), velocity=n.velocity, mute=n.mute)
+                for n in notes
+            ))
         placed += 1
         t += step
-    if placed and t > end + 1e-6:
-        # The last copy runs past the span: trim it to end exactly at the boundary.
-        last = max(track.arrangement_clips, key=lambda c: c.start_time if abs(c.start_time - (t - step)) < 1e-6 else -1)
-        last.loop_end = last.loop_start + (end - (t - step))
     return placed
 
 
