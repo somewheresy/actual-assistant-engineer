@@ -16,6 +16,33 @@ import base64
 import json
 import re
 import sys
+import struct
+from pathlib import Path
+
+
+def binary_architecture(path):
+    """Read PE machine type, including VST3 bundles, without loading native code."""
+    path = Path(path)
+    if path.is_dir():
+        binaries = sorted(path.glob("Contents/*-win/*.vst3"))
+        # Prefer x64 when a bundle supplies several architectures (Prism compatible).
+        binaries.sort(key=lambda p: "x86_64-win" not in p.parts)
+        if not binaries:
+            raise ValueError("no Windows PE binary found in VST3 bundle: %s" % path)
+        path = binaries[0]
+    with path.open("rb") as stream:
+        header = stream.read(64)
+        if len(header) != 64 or header[:2] != b"MZ":
+            raise ValueError("not a Windows PE binary: %s" % path)
+        stream.seek(struct.unpack_from("<I", header, 60)[0])
+        pe = stream.read(6)
+    if len(pe) != 6 or pe[:4] != b"PE\0\0":
+        raise ValueError("invalid Windows PE header: %s" % path)
+    machine = struct.unpack_from("<H", pe, 4)[0]
+    arch = {0x8664: "x86_64", 0xAA64: "aarch64", 0x14C: "x86"}.get(machine)
+    if not arch:
+        raise ValueError("unsupported PE machine 0x%x in %s" % (machine, path))
+    return arch
 
 
 def load(path, name):
@@ -60,12 +87,20 @@ def _juce_b64(s):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("command", choices=["params", "state"])
-    ap.add_argument("path")
+    ap.add_argument("command", choices=["params", "state", "probe"])
+    ap.add_argument("path", nargs="?")
     ap.add_argument("--plugin")
     ap.add_argument("--preset")
     ap.add_argument("--set", action="append", default=[])
     a = ap.parse_args()
+    if a.command == "probe":
+        import pedalboard
+        import platform
+        json.dump({"python": sys.executable, "pedalboard": pedalboard.__version__,
+                   "architecture": binary_architecture(sys.executable) if sys.platform == "win32" else platform.machine()}, sys.stdout)
+        return
+    if not a.path:
+        ap.error("path is required for params/state")
     p = load(a.path, a.plugin)
     if a.command == "params":
         out = []
