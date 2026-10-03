@@ -58,3 +58,21 @@ def test_lom_paths_get_set_call_and_refuse_private(run, song):
     for bad in ({"op": "get", "path": "song._data"}, {"op": "call", "path": "song", "method": "add_tempo_listener"}, {"op": "get", "path": "os.system"}):
         results, ok = run(bad)
         assert not ok
+
+
+def test_display_values_map_through_live_labels(ctx):
+    from Hermes.ops import param_value, parse_display
+    import fake_live
+
+    assert parse_display("2.5 kHz") == (2500.0, "hz") and parse_display("-6 dB") == (-6.0, "db") and parse_display("-inf dB")[0] == float("-inf")
+    # A fake frequency knob: raw 0..1 maps to 20 Hz..20 kHz exponentially, labelled like Live.
+    knob = fake_live.DeviceParameter("Frequency", 0.5)
+    knob.str_for_value = lambda v: "%.1f Hz" % (20 * 1000 ** v) if 20 * 1000 ** v < 1000 else "%.2f kHz" % (20 * 1000 ** v / 1000)
+    raw = param_value(knob, "500 Hz")
+    assert abs(20 * 1000 ** raw - 500) < 1
+    assert param_value(knob, 0.25) == 0.25 and param_value(knob, 7) == 1.0
+    try:
+        param_value(knob, "-6 dB")
+        assert False
+    except Exception as e:
+        assert "displays values like" in str(e)

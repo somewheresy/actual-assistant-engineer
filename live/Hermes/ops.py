@@ -211,6 +211,52 @@ def _vol_cb(ctx, param, i):
     return lambda: ctx.emit("track", track=i, prop="volume", value=param.value)
 
 
+UNITS = {"khz": 1000.0, "hz": 1.0, "db": 1.0, "%": 1.0, "ms": 1.0, "s": 1000.0}
+DISPLAY = re.compile(r"^\s*(-?inf|-?\d+(?:\.\d+)?)\s*(khz|hz|db|%|ms|s)?\s*$", re.I)
+
+
+def parse_display(text):
+    """'2.5 kHz' -> (2500.0, 'hz'); '-6 dB' -> (-6.0, 'db'); None when not a number with a known unit."""
+    m = DISPLAY.match(str(text))
+    if not m:
+        return None
+    unit = (m.group(2) or "").lower()
+    number = -float("inf") if m.group(1).lower() == "-inf" else float("inf") if m.group(1).lower() == "inf" else float(m.group(1))
+    family = {"khz": "hz", "s": "ms"}.get(unit, unit)
+    return number * UNITS.get(unit, 1.0), family
+
+
+def param_value(p, value):
+    """Raw parameter value for a number (raw) or a display string like "500 Hz" / "-6 dB" / "40 %".
+
+    Display strings are matched against Live's own labels (str_for_value) by bisection,
+    which assumes the label grows with the value, true for Live's continuous parameters.
+    """
+    if not isinstance(value, str):
+        return max(p.min, min(p.max, float(value)))
+    target = parse_display(value)
+    if target is None:
+        if p.is_quantized and value in list(p.value_items):
+            return float(list(p.value_items).index(value))
+        raise OpError("cannot read %r as a value for %r (give a number in %s..%s or a display value like %r)" % (value, p.name, p.min, p.max, p.str_for_value(p.max)))
+    want, family = target
+    shown = lambda v: parse_display(p.str_for_value(v))
+    top = shown(p.max)
+    if top is None or (family and top[1] != family):
+        raise OpError("%r displays values like %r, not %r" % (p.name, p.str_for_value(p.max), value))
+    lo, hi = p.min, p.max
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        cur = shown(mid)
+        if cur is None:
+            break
+        if cur[0] < want:
+            lo = mid
+        else:
+            hi = mid
+    return hi
+
+
 def _param(p):
     out = {
         "name": p.name,
@@ -702,8 +748,8 @@ def _set_param(ctx, track, device, param, value, expect=None):
     p = _index(d.parameters, param, "parameter")
     if not p.is_enabled:
         raise OpError("parameter %r is disabled" % p.name)
-    p.value = max(p.min, min(p.max, float(value)))
-    return _param(p)
+    p.value = param_value(p, value)
+    return dict(_param(p), display=p.str_for_value(p.value))
 
 
 @op("select_device")

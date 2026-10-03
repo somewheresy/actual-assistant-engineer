@@ -2,7 +2,7 @@
 
 import math
 
-from .ops import OpError, _index, op
+from .ops import OpError, _index, op, param_value
 
 UNITY = 0.85
 
@@ -35,6 +35,38 @@ def fader_to_db(value):
     if value >= UNITY:
         return 6.0 * (value - UNITY) / (1.0 - UNITY)
     return max(-70.0, 40.0 * math.log10(value / UNITY))
+
+
+def _display_db(param, value):
+    """Parse Live's own label for a fader value ("-12.0 dB", "-inf dB"); None if not a dB label."""
+    label = param.str_for_value(value)
+    if "dB" not in label:
+        return None
+    text = label.replace("dB", "").strip()
+    if text.startswith("-inf"):
+        return -float("inf")
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def fader_for_db(param, db):
+    """Exact fader value for a dB target, found by bisecting Live's display curve; falls back to the approximation."""
+    db = float(db)
+    if _display_db(param, param.max) is None:
+        return db_to_fader(db)
+    lo, hi = param.min, param.max
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        shown = _display_db(param, mid)
+        if shown is None:
+            return db_to_fader(db)
+        if shown < db:
+            lo = mid
+        else:
+            hi = mid
+    return hi
 
 
 def _routing(obj, prop, name, what):
@@ -93,7 +125,7 @@ def _set_params(ctx, track, device, values, expect=None):
     out = {}
     for key, value in values.items():
         p = _find_param(d, key)
-        _set_param_value(p, value)
+        p.value = param_value(p, value)
         out[p.name] = {"value": p.value, "display": p.str_for_value(p.value)}
     return out
 
@@ -143,7 +175,8 @@ def _sidechain(ctx, track, device, source, on=True, expect=None):
     types_ = [t for t in (d.available_input_routing_types or []) if t.attached_object is src or t.display_name == src.name]
     if not types_:
         have = ", ".join(t.display_name for t in d.available_input_routing_types or []) or "none"
-        raise OpError("no input routing from track %r (available: %s)" % (source, have))
+        hint = " A MIDI track is only a source once it has an instrument producing audio." if getattr(src, "has_midi_input", False) and not list(src.devices) else ""
+        raise OpError("no input routing from track %r (available: %s).%s Newly inserted devices list routing options from the next batch on." % (source, have, hint))
     d.input_routing_type = types_[0]
     if hasattr(d, "available_input_routing_channels") and d.available_input_routing_channels:
         d.input_routing_channel = d.available_input_routing_channels[0]
@@ -167,6 +200,8 @@ def _find_send(t, name):
     sends = list(t.mixer_device.sends)
     if isinstance(name, int) or (isinstance(name, str) and name.lstrip("-").isdigit()):
         return _index(sends, int(name), "send")
+    if isinstance(name, str) and len(name) == 1 and name.isalpha() and ord(name.upper()) - 65 < len(sends):
+        return sends[ord(name.upper()) - 65]  # "A" = first send, as labelled in Live's mixer
     for p in sends:
         if p.name == name or p.name.replace("Send ", "") == name:
             return p
@@ -176,7 +211,7 @@ def _find_send(t, name):
 def _apply_mixer(t, spec):
     out = {}
     if "volume_db" in spec and spec["volume_db"] is not None:
-        _set_param_value(t.mixer_device.volume, db_to_fader(spec["volume_db"]))
+        _set_param_value(t.mixer_device.volume, fader_for_db(t.mixer_device.volume, spec["volume_db"]))
     elif spec.get("volume") is not None:
         _set_param_value(t.mixer_device.volume, spec["volume"])
     if spec.get("pan") is not None:
@@ -188,7 +223,8 @@ def _apply_mixer(t, spec):
         t.mute = bool(spec["mute"])
     if spec.get("solo") is not None:
         t.solo = bool(spec["solo"])
-    out["volume_db"] = round(fader_to_db(t.mixer_device.volume.value), 2)
+    shown = _display_db(t.mixer_device.volume, t.mixer_device.volume.value)
+    out["volume_db"] = round(shown if shown is not None else fader_to_db(t.mixer_device.volume.value), 2)
     out["pan"] = t.mixer_device.panning.value
     out["mute"] = t.mute
     out["solo"] = t.solo

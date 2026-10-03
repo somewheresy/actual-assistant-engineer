@@ -1,6 +1,6 @@
 """Clip automation: write, read, and clear envelope breakpoints on session and arrangement clips."""
 
-from .ops import OpError, _index, op
+from .ops import OpError, _index, op, param_value
 
 DEFAULT_RESOLUTION = 0.0625
 
@@ -100,6 +100,8 @@ def _automate(ctx, track, slot=None, arrangement=None, target=None, points=(), c
         raise OpError("target is required")
     t, clip = _select(ctx, track, slot, arrangement, expect)
     param = resolve_target(t, target)
+    # Points may use display values ("500 Hz", "-6 dB"); convert to raw before ramping.
+    points = [[b, param_value(param, v)] for b, v in points]
     steps = ramp_steps(points, curve, resolution)
     if clear:
         clip.clear_envelope(param)
@@ -122,7 +124,8 @@ def _read_automation(ctx, track, slot=None, arrangement=None, target=None, times
     env = clip.automation_envelope(param)
     if env is None:
         return {"present": False, "values": [], "display": []}
-    values = [env.value_at_time(float(x)) for x in times]
+    # Live's value_at_time(0) returns the parameter's base value, not the envelope's first step.
+    values = [env.value_at_time(max(float(x), 1e-6)) for x in times]
     return {"present": True, "values": values, "display": [param.str_for_value(v) for v in values]}
 
 
