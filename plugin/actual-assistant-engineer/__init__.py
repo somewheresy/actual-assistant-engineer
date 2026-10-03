@@ -4,7 +4,7 @@ import json
 import platform
 from pathlib import Path
 
-from . import live_arrangement, live_client, live_sets, live_vst
+from . import cli, live_arrangement, live_client, live_sets, live_vst
 
 TOOLSET = "actual_assistant_engineer"
 
@@ -320,6 +320,8 @@ def register(ctx):
             check_fn=live_client.available,
             emoji="🎛️",
         )
+    ctx.register_cli_command("aae", "Actual Assistant Engineer: setup, status, review gate", cli.configure, cli.handle,
+                             description="Install the Live control surface, check the connection, and gate /goal on track completeness.")
     skills = Path(__file__).parent / "skills"
     for child in sorted(skills.iterdir()):
         if (child / "SKILL.md").exists():

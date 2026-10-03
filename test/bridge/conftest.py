@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-sys.path.insert(0, str(Path(__file__).parents[2] / "live"))
+sys.path.insert(0, str(Path(__file__).parents[2] / "plugin" / "actual-assistant-engineer" / "live"))
 
 import fake_live  # noqa: E402
 

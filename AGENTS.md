@@ -2,13 +2,15 @@
 
 ## Layout
 
-- `live/Hermes/` runs inside Ableton Live's embedded Python 3.11: standard library only, no threads, all Live Object Model access on Live's main thread (the bridge does this for you). Ops register with `@op("name")` in `ops.py` or an extension module listed in `live/Hermes/__init__.py` `EXTENSIONS`.
+- The plugin folder `plugin/actual-assistant-engineer/` is the whole product (it is what the Hermes catalog installs): plugin code, the Live control surface, native helper sources, the `hermes aae` CLI, its README. Anything users need at runtime must live there; `src/`, `spike/`, `engine/`, and `test/` are development tooling.
+
+- `plugin/actual-assistant-engineer/live/Hermes/` runs inside Ableton Live's embedded Python 3.11: standard library only, no threads, all Live Object Model access on Live's main thread (the bridge does this for you). Ops register with `@op("name")` in `ops.py` or an extension module listed in `live/Hermes/__init__.py` `EXTENSIONS`.
 - `plugin/actual-assistant-engineer/` is the Hermes plugin (Python, runs in the Hermes process). Tool descriptions and `skills/assistant-engineer/SKILL.md` are the model's manual: keep them accurate when ops change.
 - `src/` and `spike/` are Bun/TypeScript. Use `bun`, never npm. Python tooling uses `uv`.
 
 ## Working on the bridge
 
-- After editing `live/Hermes`, run `bun run aae reload` (hot-swaps code in the running Live). Live caches modules, so reselecting the control surface alone does not reload them.
+- After editing the control surface, run `bun run aae reload` (hot-swaps code in the running Live). Live caches modules, so reselecting the control surface alone does not reload them.
 - Every op that edits an existing user track accepts `expect` (its current name); keep that guard on new ops.
 - A batch is one undo step and stops at the first failing op. Ops must raise `OpError` with an actionable message (what was wrong, what is available); the model recovers from these messages.
 - Live applies some changes a tick later (song position, new cue points, routing options on just-inserted devices). Defer follow-up work with `surface.schedule_message` instead of assuming same-tick effects.

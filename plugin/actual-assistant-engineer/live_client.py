@@ -20,7 +20,10 @@ def available():
 def batch(ops, timeout=30.0, undo_step=True):
     """Run ops as one batch inside Live (one undo step) and return the response."""
     if not available():
-        raise LiveUnavailable("Ableton Live is not running with the Hermes control surface selected")
+        raise LiveUnavailable(
+            "Ableton Live isn't connected. Ask the producer to run `hermes aae setup` once, open Live, and choose "
+            '"Hermes" under Settings > Tempo & MIDI > Control Surface; `hermes aae status` checks it.'
+        )
     rid = next(_ids)
     payload = (json.dumps({"id": rid, "ops": ops, "undo_step": undo_step}) + "\n").encode()
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:

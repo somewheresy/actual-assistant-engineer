@@ -8,8 +8,8 @@
     "test": "bun test",
     "test:bridge": "cd test/bridge && uv run --with pytest python -m pytest -q",
     "test:live": "bun test test/integration",
-    "build:native": "mkdir -p bin && swiftc -O native/hermes-midi/main.swift -o bin/hermes-midi && swiftc -O native/window-id/main.swift -o bin/window-id",
-    "install:live": "mkdir -p \"$HOME/Music/Ableton/User Library/Remote Scripts\" && ln -sfn \"$PWD/live/Hermes\" \"$HOME/Music/Ableton/User Library/Remote Scripts/Hermes\" && echo 'Linked. In Live: Settings > Tempo & MIDI > Control Surface: Hermes'",
+    "build:native": "mkdir -p bin && for s in plugin/actual-assistant-engineer/native/*/main.swift; do swiftc -O \"$s\" -o \"bin/$(basename $(dirname $s))\"; done",
+    "install:live": "mkdir -p \"$HOME/Music/Ableton/User Library/Remote Scripts\" && ln -sfn \"$PWD/plugin/actual-assistant-engineer/live/Hermes\" \"$HOME/Music/Ableton/User Library/Remote Scripts/Hermes\" && echo 'Linked. In Live: Settings > Tempo & MIDI > Control Surface: Hermes'",
     "install:hermes": "H=${HERMES_HOME:-$HOME/.hermes}; mkdir -p \"$H/plugins\" && ln -sfn \"$PWD/plugin/actual-assistant-engineer\" \"$H/plugins/actual-assistant-engineer\" && hermes plugins enable actual-assistant-engineer",
     "song": "bun run spike/run-song.ts",
     "test:engine": "uv run --with pytest python -m pytest -q test/engine"

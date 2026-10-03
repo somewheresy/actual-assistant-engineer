@@ -52,10 +52,24 @@ def _bundle(plugin):
     return hits[0]["path"]
 
 
+def _python():
+    """The interpreter that has pedalboard: the plugin's own environment (declared dependency),
+    else uv with an ephemeral pedalboard."""
+    import importlib.util
+    import shutil
+    import sys
+
+    if importlib.util.find_spec("pedalboard") is not None:
+        return [sys.executable]
+    if shutil.which("uv"):
+        return ["uv", "run", "-q", "--with", "pedalboard", "python"]
+    raise VstError("the offline plug-in host needs pedalboard: reinstall the plugin's dependencies (hermes plugins install --yes-deps) or install uv")
+
+
 def _host(*args, plugin=None, timeout=180):
     """Run the offline host. Bundles holding several plug-ins need one named: retry with the
     plug-in's own name when the host says so."""
-    cmd = ["uv", "run", "-q", "--python", "3.13", "--with", "pedalboard", "python", str(HOST), *args]
+    cmd = [*_python(), str(HOST), *args]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     if r.returncode != 0 and "contains" in r.stderr and "plugin_name" in r.stderr and plugin and "--plugin" not in args:
         r = subprocess.run(cmd + ["--plugin", plugin], capture_output=True, text=True, timeout=timeout)
