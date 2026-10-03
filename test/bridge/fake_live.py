@@ -116,12 +116,33 @@ class RoutingType:
         self.display_name, self.attached_object = display_name, attached_object
 
 
+class RoutingChannel:
+    def __init__(self, display_name):
+        self.display_name = display_name
+
+
 class Device(Listenable):
     def __init__(self, name, class_name=None, params=(), can_have_drum_pads=False):
         self.name, self.class_name = name, class_name or name
         self.parameters = [DeviceParameter("Device On", 1.0, quantized=True)] + list(params)
         self.can_have_drum_pads, self.drum_pads = can_have_drum_pads, []
         self.is_active = True
+
+
+class CompressorDevice(Device):
+    def __init__(self, name="Compressor"):
+        super().__init__(name, class_name="CompressorDevice", params=[
+            DeviceParameter("Threshold", 0.0, -60.0, 0.0),
+            DeviceParameter("Ratio", 1.0, 1.0, 20.0),
+            DeviceParameter("S/C", 0.0, quantized=True),
+        ])
+        self.input_routing_type = RoutingType("No Input")
+        self.available_input_routing_types = []
+        self.input_routing_channel = None
+        self.available_input_routing_channels = []
+
+
+DEVICE_CLASSES = {"Compressor": CompressorDevice}
 
 
 class MixerDevice:
@@ -145,19 +166,37 @@ class Track(Listenable):
         self.playing_slot_index = self.fired_slot_index = -1
         self.output_routing_type = RoutingType("Master")
         self.available_output_routing_types = [RoutingType("Master"), RoutingType("Sends Only")]
+        self.output_routing_channel = RoutingChannel("Post Mixer")
+        self.available_output_routing_channels = [RoutingChannel("Post Mixer"), RoutingChannel("Pre FX")]
         self.input_routing_type = RoutingType("All Ins")
         self.available_input_routing_types = [RoutingType("All Ins"), RoutingType("No Input")]
+        self.input_routing_channel = RoutingChannel("Stereo In")
+        self.available_input_routing_channels = [RoutingChannel("Stereo In"), RoutingChannel("Mono In")]
 
     def stop_all_clips(self):
         self.playing_slot_index = -1
 
     def insert_device(self, name, index=-1):
-        d = Device(name)
+        d = DEVICE_CLASSES.get(name, Device)(name)
         self.devices.insert(len(self.devices) if index < 0 else index, d)
         return d
 
     def delete_device(self, index):
         del self.devices[index]
+
+    def duplicate_device(self, index):
+        src = self.devices[index]
+        d = DEVICE_CLASSES.get(src.name, Device)(src.name)
+        d.class_name = src.class_name
+        for a, b in zip(src.parameters, d.parameters):
+            b.value = a.value
+        if isinstance(d, CompressorDevice) and isinstance(src, CompressorDevice):
+            d.available_input_routing_types = list(src.available_input_routing_types)
+            d.input_routing_type = src.input_routing_type
+            d.input_routing_channel = src.input_routing_channel
+            d.available_input_routing_channels = list(src.available_input_routing_channels)
+        self.devices.insert(index + 1, d)
+        return d
 
     def create_midi_clip(self, start, length):
         c = Clip(length, start_time=start)
