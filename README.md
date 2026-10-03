@@ -46,6 +46,10 @@ To keep it working until the track is finished, use a Hermes goal with the compl
 
 `hermes aae review` exits non-zero until the Set has no gaps (silent tracks, empty clips, parts missing from the arrangement, unnamed sections, missing automation/sidechain/mix), so the goal can't complete early. To continue an earlier session: `hermes chat --resume <session id> -s actual-assistant-engineer:assistant-engineer -t actual_assistant_engineer,delegation`.
 
+## Models
+
+The plugin works with any tool-calling model Hermes runs, and it works best with frontier intelligence: composing, arranging, and mixing a whole track takes dozens of tool calls and real musical judgement, which frontier models handle in one to three minutes. Locally hosted models are still useful, especially for routine work inside a DAW: cleanup, labeling and coloring tracks and clips, gain staging, and fixing production errors and artifacts (stray or overlapping notes, clipping levels, disabled or misrouted devices, sends left open). Those tasks take a handful of tool calls, so a model running on your own machine handles them well and keeps your session fully local.
+
 ### Tools
 
 | Tool | What it does |

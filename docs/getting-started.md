@@ -55,7 +55,7 @@ delegation:
   oneshot_max_children: 4
 ```
 
-Faster models make for a much snappier session: a model that writes 100+ tokens a second builds a full track in one to three minutes.
+Which model? Frontier models give the best results for writing and arranging whole tracks, and a fast one (100+ tokens a second) builds a full track in one to three minutes. A locally hosted model works well for routine DAW work, such as cleanup, labeling, gain staging, and fixing production errors and artifacts, and keeps everything on your machine.
 
 ## 5. Make your first track
 
