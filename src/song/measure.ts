@@ -38,26 +38,22 @@ export async function measure(live: LiveClient, skipTracks: Set<string> = new Se
   for (const t of tracks) {
     for (const slot of Object.keys(t.clips ?? {})) {
       reads.push({ op: "get_notes", track: t.index, slot: Number(slot) });
-      reads.push({ op: "list_automation", track: t.index, slot: Number(slot) });
     }
     const a = arr.tracks.find((x) => x.index === t.index);
-    for (const c of a?.clips ?? []) reads.push({ op: "list_automation", track: t.index, arrangement: c.index });
-    t.devices.forEach((d, i) => {
-      if (/Compressor/.test(d.class)) reads.push({ op: "get", path: `song.tracks[${t.index}].devices[${i}]`, props: ["input_routing_type"] });
-    });
     reads.push({ op: "get", path: `song.tracks[${t.index}].mixer_device`, props: ["sends"] });
   }
   for (let i = 0; i < reads.length; i += 200) {
     const res = await live.batch(reads.slice(i, i + 200), { undoStep: false, timeoutMs: 60_000 });
     for (const r of res.results as Record<string, any>[]) {
       if (Array.isArray(r.notes)) for (const n of r.notes) (notes++, pitches.add(n.pitch));
-      if (Array.isArray(r.targets)) automation += r.targets.length;
-      const routing = r.values?.input_routing_type?.display_name;
-      if (routing && routing !== "No Input" && routing !== "") sidechains++;
       if (Array.isArray(r.values?.sends)) sends += r.values.sends.filter((s: { value?: number }) => (s.value ?? 0) > 0.001).length;
     }
   }
 
+  // Automation and sidechains come from the bridge's review so the report and the gate never disagree.
+  const review = await live.run<{ ok: boolean; automation_envelopes: number; sidechains: number }>({ op: "review", ignore_tracks: [...skipTracks] });
+  automation = review.automation_envelopes;
+  sidechains = review.sidechains;
   const arrClips = arr.tracks.flatMap((t) => (tracks.some((x) => x.index === t.index) ? t.clips : []));
   const endBeat = Math.max(0, ...arrClips.map((c) => c.end));
   const beatsPerBar = ov.signature[0] ?? 4;
