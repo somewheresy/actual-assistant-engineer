@@ -330,7 +330,7 @@ def register(ctx):
             emoji="🎛️",
         )
     ctx.register_system_prompt_section("actual-assistant-engineer.local-model", models.steering_section, max_chars=1200)
-    ctx.register_cli_command("aae", "Actual Assistant Engineer: setup, status, review gate", cli.configure, cli.handle,
+    ctx.register_cli_command("assistant-engineer", "Actual Assistant Engineer: setup, status, review gate", cli.configure, cli.handle,
                              description="Install the Live control surface, check the connection, and gate /goal on track completeness.")
     skills = Path(__file__).parent / "skills"
     for child in sorted(skills.iterdir()):

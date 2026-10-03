@@ -6,7 +6,7 @@ description: >-
   effect structure, write and arrange MIDI, automate clips and arrangement lanes, sidechain, mix,
   work inside VST3 plug-ins (parameters, presets, state), and check the track for completeness.
 author: Actual Computer
-homepage: https://github.com/actual-computer/actual-assistant-engineer
+homepage: https://github.com/somewheresy/actual-assistant-engineer
 license: Apache-2.0
 tags: [music, ableton, daw, audio, production]
 platforms: [macos]

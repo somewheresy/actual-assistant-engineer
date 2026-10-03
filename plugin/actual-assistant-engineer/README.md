@@ -2,19 +2,19 @@
 
 Hermes operates Ableton Live as your assistant engineer. Ask in plain language — *"make a future beat"*, *"split the kick onto its own track and sidechain everything from it"*, *"automate the filter into the drop"* — and it builds, arranges, processes, mixes, and checks the track in your Live Set. Every musical decision comes from the model your Hermes runs; the plugin gives it hands and checks.
 
-macOS, Ableton Live 12.4+ (any edition). Step-by-step guide: [Getting started](https://github.com/actual-computer/actual-assistant-engineer/blob/main/docs/getting-started.md).
+macOS, Ableton Live 12.4+ (any edition). Step-by-step guide: [Getting started](https://github.com/somewheresy/actual-assistant-engineer/blob/main/docs/getting-started.md).
 
 ## Install
 
 ```bash
 hermes plugins install actual-assistant-engineer     # accept the pedalboard dependency
-hermes aae setup                                    # installs the Live control surface
+hermes assistant-engineer setup                                    # installs the Live control surface
 ```
 
 Then, once, in Live: **Settings → Tempo & MIDI → Control Surface → Hermes**. Check everything with:
 
 ```bash
-hermes aae status
+hermes assistant-engineer status
 ```
 
 Recommended Hermes config (`~/.hermes/config.yaml`) so the model calls the tools directly and can write parts in parallel:
@@ -40,7 +40,7 @@ To keep Hermes working until the track is finished, use a goal with the complete
 
 ```
 /goal Make a progressive house track with a long build, a big breakdown and a drop, laid out in the Arrangement
-/goal gate add hermes aae review --require arrangement,locators,automation,sidechain,mix
+/goal gate add hermes assistant-engineer review --require arrangement,locators,automation,sidechain,mix
 ```
 
 ## Models

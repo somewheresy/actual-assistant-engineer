@@ -1,8 +1,8 @@
-"""`hermes aae ...`: set up, check, and gate the plugin without the source repo.
+"""`hermes assistant-engineer ...`: set up, check, and gate the plugin without the source repo.
 
-  hermes aae setup [--remote-scripts DIR] [--no-native]   install the Live control surface (+ helpers)
-  hermes aae status                                        what's installed and connected
-  hermes aae review --require arrangement,locators,...    completeness gate (exit 1 until complete)
+  hermes assistant-engineer setup [--remote-scripts DIR] [--no-native]   install the Live control surface (+ helpers)
+  hermes assistant-engineer status                                        what's installed and connected
+  hermes assistant-engineer review --require arrangement,locators,...    completeness gate (exit 1 until complete)
 """
 
 import json
@@ -119,7 +119,7 @@ def status(args):
         report["vst_host"] = False
     print(json.dumps(report, indent=2))
     if not report["control_surface_installed"]:
-        print("next: hermes aae setup")
+        print("next: hermes assistant-engineer setup")
     elif not report["bridge"]:
         print("next: " + SELECT_HINT)
     return 0 if report["bridge"] else 1
@@ -142,19 +142,19 @@ def review(args):
 
 
 def configure(parser):
-    sub = parser.add_subparsers(dest="aae_command", required=True)
+    sub = parser.add_subparsers(dest="command", required=True)
     s = sub.add_parser("setup", help="install the Live control surface and build optional helpers")
     s.add_argument("--remote-scripts", help="Live's Remote Scripts folder (default: User Library)")
     s.add_argument("--no-native", action="store_true", help="skip building the Swift helpers")
     s.add_argument("--index-plugins", action="store_true", help="cache every installed VST3's parameters now (takes a few seconds per plug-in)")
-    s.set_defaults(aae_func=setup)
+    s.set_defaults(run=setup)
     st = sub.add_parser("status", help="show what's installed and whether Live is connected")
-    st.set_defaults(aae_func=status)
+    st.set_defaults(run=status)
     rv = sub.add_parser("review", help="completeness gate for /goal: exit 1 until the Set has no gaps")
     rv.add_argument("--require", default="", help="comma list: " + ",".join(REQUIREMENTS))
     rv.add_argument("--min-sections", type=int)
-    rv.set_defaults(aae_func=review)
+    rv.set_defaults(run=review)
 
 
 def handle(args):
-    sys.exit(args.aae_func(args))
+    sys.exit(args.run(args))

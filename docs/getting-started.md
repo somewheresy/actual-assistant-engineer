@@ -17,13 +17,13 @@ hermes plugins install actual-assistant-engineer
 Hermes asks to install one Python dependency (`pedalboard`, used to read VST3 plug-ins offline). Accept it. Until the plugin is in the catalog, install from GitHub instead:
 
 ```bash
-hermes plugins install https://github.com/actual-computer/actual-assistant-engineer#plugin/actual-assistant-engineer
+hermes plugins install https://github.com/somewheresy/actual-assistant-engineer#plugin/actual-assistant-engineer
 ```
 
 ## 3. Connect Live
 
 ```bash
-hermes aae setup
+hermes assistant-engineer setup
 ```
 
 This puts the **Hermes** control surface into Live's User Library (`~/Music/Ableton/User Library/Remote Scripts/Hermes`) and builds the optional helpers if Xcode tools are installed. Add `--index-plugins` to read every installed VST3's parameters now, so plug-in work in a session starts instantly.
@@ -37,7 +37,7 @@ Then, once:
 Check the connection:
 
 ```bash
-hermes aae status
+hermes assistant-engineer status
 ```
 
 You want `"bridge": true` and your Live version. If the bridge is `false`, see [Troubleshooting](#troubleshooting).
@@ -79,10 +79,10 @@ For bigger requests, use a Hermes goal with the completeness gate, so Hermes can
 
 ```
 /goal Make a progressive house track with a long build, a big breakdown and a drop, laid out in the Arrangement
-/goal gate add hermes aae review --require arrangement,locators,automation,sidechain,mix
+/goal gate add hermes assistant-engineer review --require arrangement,locators,automation,sidechain,mix
 ```
 
-`hermes aae review` lists concrete gaps (a track missing from the Arrangement, unnamed sections, no automation, nothing balanced) and Hermes keeps working through them. Drop requirements you don't care about from `--require`.
+`hermes assistant-engineer review` lists concrete gaps (a track missing from the Arrangement, unnamed sections, no automation, nothing balanced) and Hermes keeps working through them. Drop requirements you don't care about from `--require`.
 
 ## 7. Keep improving it
 
@@ -114,7 +114,7 @@ Hermes can work with any VST3 you have installed:
 
 | Symptom | Fix |
 |---|---|
-| `hermes aae status` shows `"control_surface_installed": false` | Run `hermes aae setup`. |
+| `hermes assistant-engineer status` shows `"control_surface_installed": false` | Run `hermes assistant-engineer setup`. |
 | `"bridge": false` | Quit and reopen Live, then select **Hermes** under Settings → Tempo & MIDI → Control Surface. |
 | Hermes says Live isn't connected | Same as above; the Hermes control surface must be selected in the Set you have open. |
 | `"vst_host": false` | Reinstall with dependencies: `hermes plugins install actual-assistant-engineer --yes-deps`. |

@@ -2,20 +2,20 @@
 
 A Hermes plugin that operates Ableton Live as an assistant engineer. It creates and saves Sets, builds any instrument or effect structure, writes and arranges MIDI, automates clips and arrangement lanes, sidechains and mixes, works inside VST3 plug-ins, lays songs out in the Arrangement with named sections, and checks its own work until the track is complete. Every musical decision comes from the model Hermes is running; the plugin supplies the hands and the checks.
 
-macOS, Ableton Live 12.4+ (any edition). New here? Start with **[Getting started](docs/getting-started.md)**. Plan and status: [#1](https://github.com/actual-computer/actual-assistant-engineer/issues/1). Measurements: [docs/spike-results.md](docs/spike-results.md).
+macOS, Ableton Live 12.4+ (any edition). New here? Start with **[Getting started](docs/getting-started.md)**. Plan and status: [#1](https://github.com/somewheresy/actual-assistant-engineer/issues/1). Measurements: [docs/spike-results.md](docs/spike-results.md).
 
 ## Install
 
-Everything ships in one plugin folder, [`plugin/actual-assistant-engineer`](plugin/actual-assistant-engineer): the Hermes plugin, the Live control surface, native helper sources, and the `hermes aae` CLI.
+Everything ships in one plugin folder, [`plugin/actual-assistant-engineer`](plugin/actual-assistant-engineer): the Hermes plugin, the Live control surface, native helper sources, and the `hermes assistant-engineer` CLI.
 
 ```bash
 hermes plugins install actual-assistant-engineer     # from the catalog; accept the pedalboard dependency
-# or: hermes plugins install https://github.com/actual-computer/actual-assistant-engineer#plugin/actual-assistant-engineer
-hermes aae setup                                    # installs the Live control surface; builds helpers if swiftc exists
+# or: hermes plugins install https://github.com/somewheresy/actual-assistant-engineer#plugin/actual-assistant-engineer
+hermes assistant-engineer setup                                    # installs the Live control surface; builds helpers if swiftc exists
                                                     # add --index-plugins to cache every VST3's parameters up front
 ```
 
-Then, once, in Live: **Settings → Tempo & MIDI → Control Surface → Hermes**. `hermes aae status` checks Live, the control surface, the bridge, the helpers, and the VST host.
+Then, once, in Live: **Settings → Tempo & MIDI → Control Surface → Hermes**. `hermes assistant-engineer status` checks Live, the control surface, the bridge, the helpers, and the VST host.
 
 Recommended Hermes config (`$HERMES_HOME/config.yaml`, default `~/.hermes`), so the model calls the tools directly and can write parts in parallel:
 
@@ -42,10 +42,10 @@ To keep it working until the track is finished, use a Hermes goal with the compl
 
 ```
 /goal Make a progressive house track with a long build, a big breakdown and a drop, laid out in the Arrangement
-/goal gate add hermes aae review --require arrangement,locators,automation,sidechain,mix
+/goal gate add hermes assistant-engineer review --require arrangement,locators,automation,sidechain,mix
 ```
 
-`hermes aae review` exits non-zero until the Set has no gaps (silent tracks, empty clips, parts missing from the arrangement, unnamed sections, missing automation/sidechain/mix), so the goal can't complete early. To continue an earlier session: `hermes chat --resume <session id> -s actual-assistant-engineer:assistant-engineer -t actual_assistant_engineer,delegation`.
+`hermes assistant-engineer review` exits non-zero until the Set has no gaps (silent tracks, empty clips, parts missing from the arrangement, unnamed sections, missing automation/sidechain/mix), so the goal can't complete early. To continue an earlier session: `hermes chat --resume <session id> -s actual-assistant-engineer:assistant-engineer -t actual_assistant_engineer,delegation`.
 
 ## Models
 
@@ -70,7 +70,7 @@ Locally hosted models are for iterative requests, not whole-song building. When 
 
 ```
 Hermes (any tool-calling model)
-  └─ plugin/actual-assistant-engineer            8 tools, assistant-engineer skill, `hermes aae` CLI
+  └─ plugin/actual-assistant-engineer            8 tools, assistant-engineer skill, `hermes assistant-engineer` CLI
         │  owner-only Unix socket, newline-delimited JSON batches (no network ports)
         ▼
 Ableton Live ── "Hermes" control surface (bundled; runs inside Live's Python)
@@ -83,7 +83,7 @@ What Live's scripting API can't reach goes through a translation layer between t
 ## Repository
 
 - `plugin/actual-assistant-engineer/` — the product (what the catalog installs). `live/Hermes/` is the control surface: `ops.py` (core: tracks, scenes, clips, notes, devices, browser, transport, arrangement, locators), `ops_mix.py`, `ops_devices.py`, `ops_automation.py`, `ops_review.py`, `ops_lom.py`. `native/` holds the Swift helper sources.
-- `src/` — Bun client, the `aae` dev CLI, track measurement. `engine/als.py` — whole-Set generation from a song spec.
+- `src/` — Bun client, the `assistant-engineer` dev CLI, track measurement. `engine/als.py` — whole-Set generation from a song spec.
 - `spike/` — probes and `run-song.ts`, the measured end-to-end harness.
 - `test/` — bridge tests (fake Live), engine tests (Live-saved `.als`), integration suite (real Live).
 - `catalog/` — the draft entry for the Hermes plugin catalog.
@@ -99,8 +99,8 @@ bun run typecheck
 bun run test:bridge               # bridge logic against an in-memory fake of Live (pytest via uv)
 bun run test:engine               # Set-file translation layer against a Live-saved .als
 bun run test:live                 # integration suite against the running Live ("Hermes IT" tracks only)
-bun run aae reload                # hot-reload the control surface after editing it
-bun run aae '<op json>' ...       # run ops as one batch; `bun run aae events` streams Live events
+bun run assistant-engineer reload                # hot-reload the control surface after editing it
+bun run assistant-engineer '<op json>' ...       # run ops as one batch; `bun run assistant-engineer events` streams Live events
 bun run song --label "My Track" [--brief "..."] [--improve 2] [--discard]
 ```
 

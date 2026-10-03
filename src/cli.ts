@@ -1,10 +1,10 @@
 import { LiveClient, type Op } from "./live/client";
 
 const usage = `usage:
-  aae '<op json>' ['<op json>' ...]   run ops as one batch
-  aae events                         stream Live events
-  aae reload                         reload control surface code (development)
-  aae review [--require a,b,...]     completeness gate: prints gaps, exits 1 until none
+  assistant-engineer '<op json>' ['<op json>' ...]   run ops as one batch
+  assistant-engineer events                         stream Live events
+  assistant-engineer reload                         reload control surface code (development)
+  assistant-engineer review [--require a,b,...]     completeness gate: prints gaps, exits 1 until none
                                      (arrangement, locators, automation, sidechain, mix)`;
 
 const args = process.argv.slice(2);

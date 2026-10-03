@@ -2,7 +2,7 @@
 # public, with sha set to a full commit at least two weeks old; re-check the catalog README
 # and run `hermes plugins validate` at that sha first.
 name: actual-assistant-engineer
-repo: https://github.com/actual-computer/actual-assistant-engineer
+repo: https://github.com/somewheresy/actual-assistant-engineer
 sha: 0000000000000000000000000000000000000000
 subdir: plugin/actual-assistant-engineer
 description: >-
@@ -10,14 +10,14 @@ description: >-
   instruments and effect racks, write and arrange MIDI, automate clip and arrangement lanes,
   sidechain and mix, work inside VST3 plug-ins, and gate on track completeness. Disclosure —
   local only, no network and no credentials. Talks to Live over an owner-only Unix socket
-  through a bundled Live control surface (installed by `hermes aae setup` into Live's User
+  through a bundled Live control surface (installed by `hermes assistant-engineer setup` into Live's User
   Library). Writes Set files and a parameter cache; runs osascript to click Live's own File
   menu items and dialog buttons through Accessibility (never keystrokes), `open`, and an
   offline VST3 host (pedalboard) that loads installed plug-ins.
-maintainer: actual-computer
+maintainer: somewheresy
 tier: community
 category: tools
-docs_url: https://github.com/actual-computer/actual-assistant-engineer/tree/main/plugin/actual-assistant-engineer#readme
+docs_url: https://github.com/somewheresy/actual-assistant-engineer/tree/main/plugin/actual-assistant-engineer#readme
 version: "0.2.0"
 platforms: [macos]
 requires_hermes: ">=0.21"

@@ -4,7 +4,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "aae": "bun run src/cli.ts",
+    "assistant-engineer": "bun run src/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "test:bridge": "cd test/bridge && uv run --with pytest python -m pytest -q",

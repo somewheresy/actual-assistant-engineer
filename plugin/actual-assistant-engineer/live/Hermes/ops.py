@@ -349,7 +349,7 @@ def _info(ctx):
     return {
         "protocol": 1,
         "live_version": "%d.%d.%d" % (app.get_major_version(), app.get_minor_version(), app.get_bugfix_version()),
-        "set_id": song.get_data("aae.set_id", None),
+        "set_id": song.get_data("assistant-engineer.set_id", None),
         "tempo": song.tempo,
         "signature": [song.signature_numerator, song.signature_denominator],
         "is_playing": song.is_playing,
@@ -361,8 +361,8 @@ def _info(ctx):
 
 @op("set_identity")
 def _set_identity(ctx, set_id):
-    ctx.song.set_data("aae.set_id", set_id)
-    return {"set_id": ctx.song.get_data("aae.set_id", None)}
+    ctx.song.set_data("assistant-engineer.set_id", set_id)
+    return {"set_id": ctx.song.get_data("assistant-engineer.set_id", None)}
 
 
 @op("overview")

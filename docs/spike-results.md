@@ -17,7 +17,7 @@ Findings:
 - Python control surfaces work on every Live edition; Live's embedded Python 3.11 has `socket`/`selectors`, so the bridge is stdlib-only.
 - There is no faster scheduler than the ~100 ms `update_display` tick available to scripts; batching is what makes the socket path fast.
 - Bun sockets don't buffer writes, and macOS Unix sockets default to ~8 KB buffers. Without a client write queue and an in-tick partial-read wait, a 30 KB batch took 3+ ticks (465 ms).
-- Live caches script modules across control-surface reselection; `create_instance` reloads them, and `aae reload` hot-swaps code.
+- Live caches script modules across control-surface reselection; `create_instance` reloads them, and `assistant-engineer reload` hot-swaps code.
 - One batch = one undo step (`begin_undo_step`/`end_undo_step`).
 
 ## (b) MIDI performance path — `spike/probe-midi.ts`
