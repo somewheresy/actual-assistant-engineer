@@ -453,19 +453,23 @@ def _delete_clip(ctx, track, slot, expect=None):
     return {}
 
 
+def _note_spec(n):
+    """Accept {pitch, start, duration, velocity?} or compact [pitch, start, duration, velocity?]."""
+    if isinstance(n, (list, tuple)):
+        n = dict(zip(("pitch", "start", "duration", "velocity"), n))
+    return Live.Clip.MidiNoteSpecification(
+        pitch=int(n["pitch"]),
+        start_time=float(n["start"]),
+        duration=float(n["duration"]),
+        velocity=float(n.get("velocity", 100)),
+        mute=bool(n.get("mute", False)),
+    )
+
+
 @op("add_notes")
 def _add_notes(ctx, track, slot, notes, expect=None):
     clip = ctx.clip(track, slot, expect)
-    specs = tuple(
-        Live.Clip.MidiNoteSpecification(
-            pitch=int(n["pitch"]),
-            start_time=float(n["start"]),
-            duration=float(n["duration"]),
-            velocity=float(n.get("velocity", 100)),
-            mute=bool(n.get("mute", False)),
-        )
-        for n in notes
-    )
+    specs = tuple(_note_spec(n) for n in notes)
     clip.add_new_notes(specs)
     return {"added": len(specs), "total": len(clip.get_notes_extended(0, 128, 0.0, clip.length))}
 

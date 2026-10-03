@@ -18,7 +18,7 @@ OPS_DOC = """Ops (all positions in beats; 1 bar of 4/4 = 4 beats; pitches are MI
 - set_scene {scene, expect?, name?, color?}
 - fire_scene {scene} / fire_clip {track, slot} / stop_track {track}
 - create_clip {track, slot, length (beats), name?, color?, replace?: false, expect?}
-- add_notes {track, slot, notes: [{pitch, start, duration, velocity?}], expect?}
+- add_notes {track, slot, notes: [[pitch, start, duration, velocity], ...], expect?}  (compact arrays; {pitch, start, duration, velocity} objects also work)
 - get_notes {track, slot} / clear_notes {track, slot} / delete_clip {track, slot}
 - set_clip {track, slot, name?, color?, looping?, loop_start?, loop_end?}
 - clip_envelope {track, slot, target: "volume"|"pan"|"<device>:<param>", times: [beats]} -> sampled values
@@ -71,7 +71,14 @@ def live_browse(args, **_):
     root, query, path = args["root"], args.get("query"), args.get("path") or []
     op = {"op": "browser_search", "root": root, "query": query, "limit": args.get("limit", 25)} if query else {"op": "browser_list", "root": root, "path": path}
     res = _call([op], timeout=30.0)
-    return _result(res["results"][0] if res.get("ok") else res)
+    if not res.get("ok"):
+        return _result(res)
+    out = res["results"][0]
+    limit = args.get("limit", 40)
+    if not query and len(out.get("items", [])) > limit:
+        out["more"] = len(out["items"]) - limit
+        out["items"] = out["items"][:limit]
+    return _result(out)
 
 
 ROOTS = ["instruments", "audio_effects", "midi_effects", "drums", "sounds", "plugins", "samples", "user_library", "packs"]
