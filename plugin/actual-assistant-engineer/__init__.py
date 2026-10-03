@@ -28,6 +28,14 @@ OPS_DOC = """Ops (all positions in beats; 1 bar of 4/4 = 4 beats; pitches are MI
 - drum_pads {track, device?} -> [{note, name}] for a Drum Rack
 - browser_load {track, root, path: [names...]} loads a browser item (from live_browse) onto the track
 - select_device {track, device}
+Arrangement (timeline, positions in beats from the song start):
+- arrangement {tracks?} -> clips per track (index, name, start, end) and locators
+- arrangement_clip {track, start, length, name?, notes?, patterns?, step?} writes a MIDI clip directly on the timeline
+- place_clip {track, slot, start, length?} copies a session clip onto the timeline, repeated to fill length
+- arrange_scenes {sections: [{scene, bars, name?}], locators?: true} lays scenes out in order: every track's clip in that scene's row repeats for the section, and a named locator marks each section start
+- clear_arrangement {track?, start?, end?} / locator {time, name} / show_view {view: "Arranger"|"Session"} / back_to_arranger {}
+Anything else Live exposes (generic; paths start at song or app, select items by index or exact name: song.tracks["BASS"].devices[0].parameters["Threshold"]):
+- get {path, props?: [...]} / set {path, prop, value} / call {path, method, args?: [...]} / describe {path} -> props and methods
 `track` is an index or exact name ("master", "return:0" also work); `scene`/`slot` are indexes.
 Refer to tracks you create by their name in later ops (names are exact-match). "$N.key" also works: N is the position of an earlier op in this same ops list (0-based) and key a field of its result, e.g. "$2.index".
 Pass expect: "<current name>" on edits to existing user tracks so a stale index fails instead of editing the wrong track."""
