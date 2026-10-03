@@ -21,6 +21,7 @@ const { values: args } = parseArgs({
     discard: { type: "boolean", default: false },
     budget: { type: "string", default: "1800" },
     provider: { type: "string" },
+    improve: { type: "string", default: "0" },
     model: { type: "string" },
   },
 });
@@ -95,6 +96,24 @@ for (let round = 1; round <= MAX_ROUNDS; round++) {
   const interrupted = stalled || exit !== 0;
   query = `${interrupted ? "You were interrupted mid-build. First call live_review and live_inspect to see what already exists, then continue from there instead of rebuilding.\n" : ""}live_review still reports these gaps against the brief:\n- ${gaps.join("\n- ")}\nFix every gap, call live_review again, and only report when it returns complete.`;
 }
+// QA rounds: analysis -> the model's own improvements -> gate again. Complexity is recorded per pass.
+const passes: { pass: number; seconds: number; complexity: Awaited<ReturnType<typeof measure>>; energy: number[]; repeats: number; clashes: number; gaps: string[] }[] = [];
+const snapshot = async (pass: number, seconds: number) => {
+  const l = await new LiveClient().connect();
+  const complexity = await measure(l, baseline);
+  const a = await l.run<{ ok: boolean; energy_curve: number[]; unchanged_repeats: number; register_clashes: unknown[] }>({ op: "analyze", ignore_tracks: [...baseline] }, 60_000);
+  const gaps = (await l.run<{ ok: boolean; gaps: string[] }>({ op: "review", require }, 60_000)).gaps;
+  l.close();
+  passes.push({ pass, seconds, complexity, energy: a.energy_curve, repeats: a.unchanged_repeats, clashes: a.register_clashes.length, gaps });
+  console.error(`pass ${pass}: ${complexity.tracks} tracks, ${complexity.notes} notes, ${complexity.automationEnvelopes} automation, energy ${a.energy_curve.join("/")}, ${a.unchanged_repeats} repeats, ${a.register_clashes.length} clashes, ${gaps.length} gaps`);
+  return a;
+};
+let analysis = await snapshot(0, Math.round((Date.now() - t0) / 1000));
+for (let pass = 1; pass <= Number(args.improve) && session; pass++) {
+  const p0 = Date.now();
+  await hermes(`QA pass ${pass}. Here is live_analyze for the current arrangement:\n${JSON.stringify(analysis)}\nAs the producer's QA engineer, pick the 3-5 changes with the biggest musical impact for the brief (energy arc into the drop and out of the breakdown, variation where sections repeat the same clips, register clashes, movement via automation, transitions, mix balance). Make them, then confirm with live_analyze and live_review (it must stay complete), and report what you changed and why.`, session);
+  analysis = await snapshot(pass, Math.round((Date.now() - p0) / 1000));
+}
 const wallSeconds = (Date.now() - t0) / 1000;
 
 // Agent metrics: everything Hermes logged during this run (main session and its subagents).
@@ -128,7 +147,7 @@ await Bun.sleep(500);
 const shot = screenshotLive(`${runDir}/arrangement.png`);
 const saved = await saveSetAs(runDir, args.label!);
 
-const result = { label: args.label, brief: args.brief, wallSeconds: Math.round(wallSeconds), agent, complexity, saved, screenshot: shot, report };
+const result = { label: args.label, brief: args.brief, wallSeconds: Math.round(wallSeconds), agent, complexity, passes, saved, screenshot: shot, report };
 await Bun.write(`${runDir}/run.json`, JSON.stringify(result, null, 2));
 const c = complexity;
 const md = `# ${args.label}
@@ -146,7 +165,7 @@ const md = `# ${args.label}
 | Automation envelopes / sidechains / active sends | ${c.automationEnvelopes} / ${c.sidechains} / ${c.activeSends} |
 | Completeness gate | ${rounds.at(-1)!.gaps.length ? "**incomplete**: " + rounds.at(-1)!.gaps.join("; ") : "passed"} |
 
-${Object.entries(c.devicesByTrack).map(([t, d]) => `- **${t}**: ${d.join(" → ")}`).join("\n")}
+${passes.length > 1 ? `| QA pass | time | tracks | notes | automation | energy by section | unchanged repeats | register clashes | gaps |\n|---|---|---|---|---|---|---|---|---|\n${passes.map((p) => `| ${p.pass || "build"} | ${p.seconds}s | ${p.complexity.tracks} | ${p.complexity.notes} | ${p.complexity.automationEnvelopes} | ${p.energy.join(" / ")} | ${p.repeats} | ${p.clashes} | ${p.gaps.length} |`).join("\n")}\n\n` : ""}${Object.entries(c.devicesByTrack).map(([t, d]) => `- **${t}**: ${d.join(" → ")}`).join("\n")}
 
 ![Arrangement](arrangement.png)
 

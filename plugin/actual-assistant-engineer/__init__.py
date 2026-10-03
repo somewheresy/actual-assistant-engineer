@@ -95,6 +95,11 @@ def live_review(args, **_):
     return _result(res["results"][0] if res.get("ok") else res)
 
 
+def live_analyze(args, **_):
+    res = _call([{"op": "analyze", "ignore_tracks": args.get("ignore_tracks", [])}], timeout=60.0)
+    return _result(res["results"][0] if res.get("ok") else res)
+
+
 def live_browse(args, **_):
     searches = args.get("searches")
     if searches:
@@ -183,7 +188,13 @@ SCHEMAS["live_review"] = {
     },
 }
 
-HANDLERS = {"live_inspect": live_inspect, "live_ops": live_ops, "live_browse": live_browse, "live_review": live_review}
+SCHEMAS["live_analyze"] = {
+    "name": "live_analyze",
+    "description": "QA analysis of the arrangement, section by section (from the locators): which tracks play, notes per bar, pitch range, automated parameters, and whether a part repeats the exact clips of an earlier section; plus the energy curve across sections, register clashes (two parts overlapping by an octave or more), and each track's level. Use it to find what to improve: flat energy, unchanged repeats, crowded registers, parts that never develop.",
+    "parameters": {"type": "object", "properties": {"ignore_tracks": {"type": "array", "items": {"type": "string"}, "description": "track names to leave out (e.g. untouched template tracks)"}}},
+}
+
+HANDLERS = {"live_inspect": live_inspect, "live_ops": live_ops, "live_browse": live_browse, "live_review": live_review, "live_analyze": live_analyze}
 
 
 def register(ctx):

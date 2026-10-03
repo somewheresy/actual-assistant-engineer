@@ -8,3 +8,4 @@ provides_tools:
   - live_ops
   - live_browse
   - live_review
+  - live_analyze

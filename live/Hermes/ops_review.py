@@ -87,3 +87,70 @@ def _envelopes(track, clip):
     for d in track.devices:
         params += list(d.parameters)
     return sum(1 for p in params if clip.automation_envelope(p) is not None)
+
+
+def _clip_notes(clip):
+    return list(clip.get_notes_extended(0, 128, 0.0, clip.length)) if clip.is_midi_clip else []
+
+
+@op("analyze")
+def _analyze(ctx, ignore_tracks=()):
+    """Section-by-section facts about the arrangement for QA: who plays, how densely, in what
+    register, how much repeats, where automation moves, plus overlaps between parts."""
+    song = ctx.song
+    beats_per_bar = song.signature_numerator
+    cues = sorted((c.time, c.name) for c in song.cue_points)
+    tracks = [t for t in song.tracks if t.name not in ignore_tracks and list(t.arrangement_clips)]
+    end = max([c.end_time for t in tracks for c in t.arrangement_clips] or [0.0])
+    if not cues or cues[0][0] > 0:
+        cues = [(0.0, "(start)")] + cues
+    bounds = [(t, n, cues[i + 1][0] if i + 1 < len(cues) else end) for i, (t, n) in enumerate(cues)]
+    sections = []
+    seen_clips = {}
+    for start, name, stop in bounds:
+        if stop <= start:
+            continue
+        bars = (stop - start) / beats_per_bar
+        parts = []
+        for t in tracks:
+            clips = [c for c in t.arrangement_clips if c.start_time < stop and c.end_time > start]
+            if not clips:
+                continue
+            notes, lo, hi, automated, names = 0, 127, 0, 0, set()
+            for c in clips:
+                ns = _clip_notes(c)
+                notes += len(ns)
+                if ns:
+                    lo, hi = min(lo, min(n.pitch for n in ns)), max(hi, max(n.pitch for n in ns))
+                automated += _envelopes(t, c)
+                names.add(c.name)
+            key = (t.name, tuple(sorted(names)))
+            repeated_from = seen_clips.get(key)
+            seen_clips.setdefault(key, name)
+            parts.append({
+                "track": t.name,
+                "notes_per_bar": round(notes / bars, 1) if bars else 0,
+                "range": [lo, hi] if notes else None,
+                "automated_params": automated,
+                "same_clips_as": repeated_from,
+            })
+        energy = sum(p["notes_per_bar"] for p in parts)
+        sections.append({"name": name, "start_bar": start / beats_per_bar + 1, "bars": bars, "tracks": len(parts), "energy": round(energy, 1), "parts": parts})
+    # Register clashes: pairs of melodic parts whose ranges overlap by an octave or more in the same section.
+    clashes = []
+    for s in sections:
+        ranged = [p for p in s["parts"] if p["range"] and p["range"][1] - p["range"][0] > 0]
+        for i, a in enumerate(ranged):
+            for b in ranged[i + 1:]:
+                overlap = min(a["range"][1], b["range"][1]) - max(a["range"][0], b["range"][0])
+                if overlap >= 12:
+                    clashes.append({"section": s["name"], "tracks": [a["track"], b["track"]], "overlap_semitones": overlap})
+    mix = {t.name: t.mixer_device.volume.str_for_value(t.mixer_device.volume.value) for t in tracks}
+    return {
+        "bars": end / beats_per_bar,
+        "sections": sections,
+        "energy_curve": [s["energy"] for s in sections],
+        "unchanged_repeats": sum(1 for s in sections for p in s["parts"] if p["same_clips_as"]),
+        "register_clashes": clashes,
+        "mix": mix,
+    }
