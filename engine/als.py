@@ -13,11 +13,10 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 def live_resources():
-    """App-Resources of the newest installed Ableton Live (any edition)."""
-    apps = sorted(p for base in (Path("/Applications"), Path.home() / "Applications") for p in base.glob("Ableton Live*.app"))
-    if not apps:
-        raise FileNotFoundError("no Ableton Live app found")
-    return apps[-1] / "Contents" / "App-Resources"
+    """Use the shipped running/installed Live discovery on either platform."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from developer import plugin_module
+    return plugin_module("live_app").resources()
 
 
 TEMPLATES = {
