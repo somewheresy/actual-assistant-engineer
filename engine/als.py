@@ -194,6 +194,9 @@ def generate(spec):
     resize_scenes(liveset, len(sections), ids)
     for scene, section in zip(liveset.find("Scenes"), sections):
         scene.find("Name").set("Value", section["name"])
+        # Template scenes carry their own tempo; launching one would override the song tempo.
+        scene.find("Tempo").set("Value", str(section.get("tempo", spec["tempo"])))
+        scene.find("IsTempoEnabled").set("Value", "true" if "tempo" in section else "false")
         if "color" in section:
             scene.find("Color").set("Value", str(section["color"]))
 

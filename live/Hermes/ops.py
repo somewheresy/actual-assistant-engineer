@@ -541,6 +541,16 @@ def _set_param(ctx, track, device, param, value, expect=None):
     return _param(p)
 
 
+@op("select_device")
+def _select_device(ctx, track, device, expect=None):
+    """Select a track and device so Live's UI (and plug-in window toggles) target it."""
+    t = ctx.track(track, expect)
+    d = _index(t.devices, device, "device")
+    ctx.song.view.selected_track = t
+    ctx.song.view.select_device(d)
+    return {"name": d.name}
+
+
 # --- browser -----------------------------------------------------------------
 
 BROWSER_ROOTS = ("instruments", "audio_effects", "midi_effects", "drums", "sounds", "plugins", "samples", "user_library", "packs")

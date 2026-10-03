@@ -55,6 +55,7 @@ await Bun.sleep(2500);
 const playing = await live.run<Overview>({ op: "overview", clips: false });
 const playingParts = playing.tracks.filter((t) => t.playing_slot === chorus).map((t) => t.name);
 check(playingParts.length === 3, `playing on chorus: ${playingParts}`);
+check(playing.tempo === fixtureSong.tempo, `tempo after scene launch ${playing.tempo} != ${fixtureSong.tempo}`);
 await live.run({ op: "transport", play: false });
 
 console.log(`verified ${clips} clips, ${notes} notes, tempo, scenes, envelopes; playing: ${playingParts.join(", ")}`);

@@ -50,3 +50,17 @@ Findings:
 - Clip envelopes written into the file are real Live automation (readable through `Clip.automation_envelope`), so filter sweeps/macros are reachable without a LOM write API.
 - Opening a Set replaces the current one. Live's "Save changes?" alert is reachable through accessibility (buttons carry descriptions), so it can be answered without moving the cursor. The probe only discards with `--discard`; the product must save or ask.
 - Set-to-playable mechanics take ~3 s, so model composition time dominates the five-minute target.
+- Template scenes carry their own tempo (Quick Start Song: 74 BPM on every scene), so launching a scene silently changed the song tempo. The writer now disables scene tempo unless a section sets one, and the probe re-checks tempo after a scene launch.
+
+## (d) VST plug-ins — `spike/probe-vst.ts`
+
+| Plug-in (VST3) | Load via browser | Parameters exposed to the LOM | Set + read back |
+|---|---|---|---|
+| Kilohearts kHs Chorus (effect) | 0.4 s | 7 (all) | exact |
+| Xfer Serum 2 (instrument) | 0.4 s | 1 ("Device On") | needs Configure |
+| Arturia CMI V (instrument) | 5.8 s | 1 ("Device On") | needs Configure |
+
+Findings:
+- Browser loading works for any installed VST3 by path (`plugins/VST3/<vendor>/<name>`). Only VST3 is enabled on this machine.
+- Live auto-exposes parameters only for small plug-ins; large instruments expose nothing until parameters are configured. Configured parameters persist in the Set as `PluginFloatParameter` entries (`ParameterId` = plug-in parameter index, `VisualIndex` = slot), so once a plug-in's parameter ids are known, the `.als` writer can pre-configure up to 128 of them, or map them to rack macros.
+- Plug-in preset browsers and unexposed controls need computer use. Hermes' `cua-driver` (0.21.0, bundled at `~/.hermes/tools/`) is installed but has no Accessibility/Screen Recording grant yet; that grant is a user step (`hermes computer-use permissions grant`). Its telemetry defaulted to on and has been disabled.
