@@ -7,6 +7,7 @@ description: >-
   work inside VST3 plug-ins (parameters, presets, state), and check the track for completeness.
 author: Actual Computer
 homepage: https://github.com/actual-computer/actual-assistant-engineer
+license: Apache-2.0
 tags: [music, ableton, daw, audio, production]
 platforms: [macos]
 requires_hermes: ">=0.21"

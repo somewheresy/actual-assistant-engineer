@@ -2,7 +2,7 @@
 
 Hermes operates Ableton Live as your assistant engineer. Ask in plain language — *"make a future beat"*, *"split the kick onto its own track and sidechain everything from it"*, *"automate the filter into the drop"* — and it builds, arranges, processes, mixes, and checks the track in your Live Set. Every musical decision comes from the model your Hermes runs; the plugin gives it hands and checks.
 
-macOS, Ableton Live 12.4+ (any edition).
+macOS, Ableton Live 12.4+ (any edition). Step-by-step guide: [Getting started](https://github.com/actual-computer/actual-assistant-engineer/blob/main/docs/getting-started.md).
 
 ## Install
 
@@ -62,3 +62,7 @@ To keep Hermes working until the track is finished, use a goal with the complete
 - Files: the control surface link in Live's User Library, Set files it creates or saves (default `~/Documents/Ableton Live Projects/Hermes`), and a parameter cache in `~/Library/Caches/ActualAssistantEngineer`.
 - Subprocesses: `osascript` (clicks Live's own File menu items and dialog buttons through Accessibility — never keystrokes), `open`, and an offline VST3 host (`pedalboard`) that loads installed plug-ins to read parameters and state.
 - No network access and no credentials.
+
+## License
+
+Apache License 2.0 (see `LICENSE`). Copyright 2026 Actual Computer.

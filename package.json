@@ -1,6 +1,7 @@
 {
   "name": "actual-assistant-engineer",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "aae": "bun run src/cli.ts",

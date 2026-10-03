@@ -27,13 +27,14 @@
 - Never send synthesized keystrokes. They go to whatever app has focus, not necessarily Live. Use Live's menu items and dialog buttons through accessibility (`click menu item`, button descriptions), file operations, or `open`.
 - Never discard unsaved work unless the producer explicitly chose to. `live_set` stops on "Save changes?" unless told `save`/`discard`; the harness only discards with `--discard`.
 - Don't modify tracks that existed before a task unless asked; untouched template tracks stay untouched.
-- Screenshots capture only Live's own window (`bin/window-id` + `screencapture -l`), never a screen region.
+- Screenshots capture only Live's own window (the `window-id` helper + `screencapture -l`), never a screen region.
 - Keep credentials out of the repo; Hermes reads them from `$HERMES_HOME/.env`.
 
 ## Workflow
 
 - Track work in GitHub issues; reference `#N` in commits. Branches: `<issue>/<short-description>`, one worktree per branch and per agent.
-- Update `README.md` and this file when install steps, tools, ops, or workflows change.
+- Update `README.md`, the plugin's `README.md` (shown on the catalog page), the skill, and this file when install steps, tools, ops, or workflows change.
+- License: Apache-2.0. New source files need no per-file header; keep `LICENSE`/`NOTICE` in both the repo root and the plugin folder (the catalog installs only the plugin folder).
 
 ## Generality
 

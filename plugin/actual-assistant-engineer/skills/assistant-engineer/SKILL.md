@@ -44,4 +44,4 @@ When asked to improve or polish (or after a first complete version), run QA pass
 Work in phases and keep going until `live_review` is complete; a failed op, a timeout, or a resumed session is a reason to inspect and continue, not to stop. If you were interrupted, start by calling `live_review` and `live_inspect` to see what already exists, then finish the missing parts instead of rebuilding.
 
 For interactive sessions, the producer can make this mechanical with Hermes goals:
-`/goal <brief>` then `/goal gate add aae review --require arrangement,locators,automation,sidechain,mix` — the goal can't complete until the review passes.
+`/goal <brief>` then `/goal gate add hermes aae review --require arrangement,locators,automation,sidechain,mix` — the goal can't complete until the review passes.

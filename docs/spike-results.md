@@ -22,7 +22,7 @@ Findings:
 
 ## (b) MIDI performance path — `spike/probe-midi.ts`
 
-`native/hermes-midi` publishes a CoreMIDI virtual source; Live routes it to the Hermes surface's input (Track input off so notes never reach instruments).
+The bundled `hermes-midi` helper (`plugin/actual-assistant-engineer/native/`) publishes a CoreMIDI virtual source; Live routes it to the Hermes surface's input (Track input off so notes never reach instruments).
 
 | Measure | Result |
 |---|---|

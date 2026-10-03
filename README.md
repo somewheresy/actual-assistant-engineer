@@ -1,109 +1,114 @@
 # Actual Assistant Engineer
 
-A Hermes plugin that operates Ableton Live as an assistant engineer: it inspects Sets, picks instruments, kits, and presets, writes and arranges MIDI, builds FX chains, automates, sidechains, mixes, lays songs out in the Arrangement with named sections, and checks its own work until the track is complete. All musical decisions come from the model Hermes is running; the plugin supplies the hands and the checks.
+A Hermes plugin that operates Ableton Live as an assistant engineer. It creates and saves Sets, builds any instrument or effect structure, writes and arranges MIDI, automates clips and arrangement lanes, sidechains and mixes, works inside VST3 plug-ins, lays songs out in the Arrangement with named sections, and checks its own work until the track is complete. Every musical decision comes from the model Hermes is running; the plugin supplies the hands and the checks.
 
-macOS only. Plan and status: [#1](https://github.com/actual-computer/actual-assistant-engineer/issues/1). Measurements: [docs/spike-results.md](docs/spike-results.md).
-
-## How it works
-
-```
-Hermes (session model: GLM-5.3, Claude Opus 5.5, ...)
-  └─ plugin/actual-assistant-engineer   tools: live_set, live_inspect, live_ops, live_browse, live_review,
-                                        live_analyze, live_arrangement_automation, live_vst
-        │  Unix socket (0600, no TCP port), newline-delimited JSON batches
-        ▼
-Ableton Live ── "Hermes" control surface (plugin/actual-assistant-engineer/live/Hermes, runs inside Live's Python)
-        • each batch runs on Live's main thread as ONE undo step, with read-back results
-        • ~100 ms update tick; 200 edits ≈ 60 ms round trip
-        • CoreMIDI fast path for performance gestures (~9 ms), via the bundled hermes-midi helper
-```
-
-- `plugin/actual-assistant-engineer/live/Hermes/` — the control surface. `ops.py` (tracks, scenes, clips, notes and step patterns, devices, browser, transport, arrangement, locators), `ops_mix.py` (insert/delete devices, params by display value like `"1.2 kHz"`/`"-6 dB"`/`"4:1"`, routing, sidechain, one-call mixer with exact dB), `ops_automation.py` (clip envelopes), `ops_review.py` (completeness review and section-by-section QA analysis), `ops_devices.py` (declarative device graphs: any instrument/effect/rack structure, nested chains, drum pads; `device_tree`, `configure` at any depth), `ops_lom.py` (generic `get`/`set`/`call`/`describe` on any Live Object Model path, e.g. `song.tracks["BASS"].devices[0]`).
-- `plugin/actual-assistant-engineer/` — the native Hermes plugin and its `assistant-engineer` skill. It also holds the file translation layer (`als_automation.py`): Live's API can't reach some features (arrangement automation, macro mappings), so those round-trip through the Set file, locating tracks, devices, and parameters by their LOM names and inferring each parameter's file units from its current value.
-- `src/` — Bun client (`src/live/client.ts`), the `aae` CLI, and track measurement.
-- `engine/als.py` — writes complete Live Sets from a song spec (template-based `.als` generation).
-- `spike/` — probes and `run-song.ts`, the end-to-end harness that builds, gates, measures, screenshots, and saves a track per run.
-- `plugin/actual-assistant-engineer/native/` — `hermes-midi` (virtual MIDI source for performance) and `window-id` (captures Live's window for screenshots).
-
-## Requirements
-
-- macOS, Ableton Live 12.4+ (any edition; built and tested on 12.4.5 Suite)
-- [Hermes Agent](https://github.com/NousResearch/hermes-agent) 0.21+, with a model configured (tool calling required)
-- [Bun](https://bun.sh), [uv](https://docs.astral.sh/uv/) with Python 3.13, Xcode command line tools (`swiftc`)
-- Accessibility permission for the app that runs Hermes (Terminal, etc.), used only to click Live's own menu items and dialog buttons for Set files
+macOS, Ableton Live 12.4+ (any edition). New here? Start with **[Getting started](docs/getting-started.md)**. Plan and status: [#1](https://github.com/actual-computer/actual-assistant-engineer/issues/1). Measurements: [docs/spike-results.md](docs/spike-results.md).
 
 ## Install
 
-Everything ships in the plugin folder (`plugin/actual-assistant-engineer`): the Hermes plugin, the Live control surface, the native helper sources, and the `hermes aae` CLI. From the Hermes plugin catalog:
+Everything ships in one plugin folder, [`plugin/actual-assistant-engineer`](plugin/actual-assistant-engineer): the Hermes plugin, the Live control surface, native helper sources, and the `hermes aae` CLI.
 
 ```bash
-hermes plugins install actual-assistant-engineer     # accept the pedalboard dependency
-hermes aae setup                                    # links the control surface into Live's Remote Scripts, builds helpers if swiftc exists
-hermes aae status                                   # Live, control surface, bridge, helpers, VST host
+hermes plugins install actual-assistant-engineer     # from the catalog; accept the pedalboard dependency
+# or: hermes plugins install https://github.com/actual-computer/actual-assistant-engineer#plugin/actual-assistant-engineer
+hermes aae setup                                    # installs the Live control surface; builds helpers if swiftc exists
 ```
 
-Or straight from GitHub: `hermes plugins install https://github.com/actual-computer/actual-assistant-engineer#plugin/actual-assistant-engineer`.
+Then, once, in Live: **Settings → Tempo & MIDI → Control Surface → Hermes**. `hermes aae status` checks Live, the control surface, the bridge, the helpers, and the VST host.
 
-Then:
+Recommended Hermes config (`$HERMES_HOME/config.yaml`, default `~/.hermes`), so the model calls the tools directly and can write parts in parallel:
 
-1. **Live** — restart Live, open *Settings → Tempo & MIDI*, and set a *Control Surface* slot to **Hermes** (once). `hermes aae status` confirms the bridge.
-2. **Hermes config** (`$HERMES_HOME/config.yaml`, default `~/.hermes`) — give the model the tools directly and allow parallel subagents:
-   ```yaml
-   tools:
-     tool_search:
-       enabled: "off"
-   delegation:
-     max_concurrent_children: 4
-     oneshot_max_children: 4
-   ```
-3. Verify: `hermes plugins doctor actual-assistant-engineer` should report 8 tools and the `aae` command.
+```yaml
+tools:
+  tool_search:
+    enabled: "off"
+delegation:
+  max_concurrent_children: 4
+  oneshot_max_children: 4
+```
 
-For development from a clone: `bun install`, `bun run install:hermes` (links the plugin folder into `$HERMES_HOME/plugins`), `bun run install:live`, `bun run build:native` (helpers into `bin/` for the harness).
-
-Optional performance path: run `bin/hermes-midi` (publishes the "Hermes Performance" MIDI port), then in Live set the Hermes control surface's *Input* to **Hermes Performance** and turn off that port's *Track* input.
+Requirements: macOS; Ableton Live 12.4+; Hermes Agent 0.21+ with a tool-calling model; Accessibility permission for the app running Hermes (used only to click Live's own File menu items and dialog buttons). Xcode command line tools are optional (helpers for the MIDI performance port and window screenshots).
 
 ## Use
-
-Open a Set in Live (or let Hermes create one), then:
 
 ```bash
 hermes chat -s actual-assistant-engineer:assistant-engineer -t actual_assistant_engineer,delegation
 ```
 
-and ask in plain language: *"Make a future beat"*, *"split the kick onto its own track and sidechain everything from it"*, *"run a QA pass and fix the three biggest issues"*. Hermes uses whatever model its config selects.
+Ask in plain language: *"make a future beat"*, *"split the kick onto its own track and sidechain everything from it"*, *"expose the synth's filter cutoff and automate it into the drop"*, *"run a QA pass and fix the three biggest issues"*. Hermes uses whatever model its config selects.
 
-To keep it working until the track is genuinely finished, use a Hermes goal with the completeness gate:
+To keep it working until the track is finished, use a Hermes goal with the completeness gate:
 
 ```
 /goal Make a progressive house track with a long build, a big breakdown and a drop, laid out in the Arrangement
 /goal gate add hermes aae review --require arrangement,locators,automation,sidechain,mix
 ```
 
-`hermes aae review` exits non-zero until the Set has no gaps (silent tracks, empty clips, parts missing from the arrangement, unnamed sections, missing automation/sidechain/mix), so the goal cannot complete early.
+`hermes aae review` exits non-zero until the Set has no gaps (silent tracks, empty clips, parts missing from the arrangement, unnamed sections, missing automation/sidechain/mix), so the goal can't complete early. To continue an earlier session: `hermes chat --resume <session id> -s actual-assistant-engineer:assistant-engineer -t actual_assistant_engineer,delegation`.
 
-To continue a previous run, resume its session: `hermes chat --resume <session id> -s actual-assistant-engineer:assistant-engineer -t actual_assistant_engineer,delegation` (the id is in each run's `run.json`).
+### Tools
 
-### Measured runs
+| Tool | What it does |
+|---|---|
+| `live_set` | New, open, save, save as. Never discards unsaved work unless told |
+| `live_inspect` | Read the Set: tracks, devices, mixer, clips, scenes |
+| `live_ops` | Batched edits, one undo step each: tracks, scenes, clips and notes (arrays or step patterns), declarative device graphs (`build_device`: any instrument/effect/rack structure, nested chains, drum pads, macros; `device_tree`, `configure` at any depth), parameters in display units (`"1.2 kHz"`, `"-6 dB"`, `"4:1"`), routing, sidechain, exact-dB mixer, clip automation, arrangement and locators, plus generic `get`/`set`/`call`/`describe` on anything in Live's object model |
+| `live_browse` | Find instruments, effects, kits, presets, samples, plug-ins |
+| `live_vst` | Inside VST3 plug-ins: every parameter by name, preset files on disk, programs, expose up to 128 parameters to Live, load `.vstpreset` files or parameter values as state |
+| `live_arrangement_automation` | Arrangement-lane automation, which Live's API can't reach: list, read, write, delete through the Set file |
+| `live_review` | Completeness check: concrete gaps until the track is finished |
+| `live_analyze` | Section-by-section QA: energy curve, content repeats, register clashes, levels |
 
-`bun run song --label "My Track" [--brief "..."] [--improve 2] [--discard]` opens a fresh Set, runs Hermes (the parent Hermes's model unless `--provider`/`--model` are given), gates on `review`, resumes with the gaps and recovers from stalls and crashes (up to 6 rounds), optionally runs QA improvement passes, and writes to `~/Documents/Ableton Live Projects/Hermes Demos/runs/<label>/`: the saved Set, an Arrangement screenshot, the transcript, and a README with wall time, model calls, tokens, time spent in Live, and complexity (tracks, devices, clips, notes, sections, automation, sidechains, sends, energy curve). `--discard` drops whatever unsaved Set is open; without it the harness stops instead.
+## How it works
+
+```
+Hermes (any tool-calling model)
+  └─ plugin/actual-assistant-engineer            8 tools, assistant-engineer skill, `hermes aae` CLI
+        │  owner-only Unix socket, newline-delimited JSON batches (no network ports)
+        ▼
+Ableton Live ── "Hermes" control surface (bundled; runs inside Live's Python)
+        • each batch runs on Live's main thread as one undo step and returns read-back results
+        • ~100 ms update tick; 200 edits ≈ 60 ms round trip; MIDI fast path ≈ 9 ms
+```
+
+What Live's scripting API can't reach goes through a translation layer between the Live object model and the Set file (`als_automation.py`, `als_plugins.py`): it locates tracks, devices, and parameters in the `.als` by their API names, infers each parameter's file units from its current value, edits the file, reopens the Set, and verifies through the API. VST3 parameter lists and state come from an offline host (`pedalboard`, a declared dependency). Nothing is configured per plug-in, vendor, or machine.
+
+## Repository
+
+- `plugin/actual-assistant-engineer/` — the product (what the catalog installs). `live/Hermes/` is the control surface: `ops.py` (core: tracks, scenes, clips, notes, devices, browser, transport, arrangement, locators), `ops_mix.py`, `ops_devices.py`, `ops_automation.py`, `ops_review.py`, `ops_lom.py`. `native/` holds the Swift helper sources.
+- `src/` — Bun client, the `aae` dev CLI, track measurement. `engine/als.py` — whole-Set generation from a song spec.
+- `spike/` — probes and `run-song.ts`, the measured end-to-end harness.
+- `test/` — bridge tests (fake Live), engine tests (Live-saved `.als`), integration suite (real Live).
+- `catalog/` — the draft entry for the Hermes plugin catalog.
 
 ## Development
 
 ```bash
+bun install
+bun run install:hermes            # link the plugin folder into $HERMES_HOME/plugins and enable it
+bun run install:live              # link the bundled control surface into Live's Remote Scripts
+bun run build:native              # helpers into bin/ for the harness
 bun run typecheck
-bun run test:bridge                 # bridge logic against an in-memory fake of Live (pytest)
-bun run test:engine                 # Set-file translation layer against a Live-saved .als (pytest)
-bun run test:live                   # integration suite against the running Live (uses only "Hermes IT" tracks)
-bun run aae reload                  # hot-reload the control surface after editing it
-bun run aae '<op json>' ...         # run ops as one batch; `bun run aae events` streams Live events
+bun run test:bridge               # bridge logic against an in-memory fake of Live (pytest via uv)
+bun run test:engine               # Set-file translation layer against a Live-saved .als
+bun run test:live                 # integration suite against the running Live ("Hermes IT" tracks only)
+bun run aae reload                # hot-reload the control surface after editing it
+bun run aae '<op json>' ...       # run ops as one batch; `bun run aae events` streams Live events
+bun run song --label "My Track" [--brief "..."] [--improve 2] [--discard]
 ```
+
+`bun run song` opens a fresh Set, runs Hermes (the parent Hermes's model unless `--provider`/`--model` override it), gates on `review`, resumes with gaps and recovers from stalls and crashes, optionally runs QA passes, and saves the Set, an Arrangement screenshot, the transcript, and a metrics README to `~/Documents/Ableton Live Projects/Hermes Demos/runs/<label>/`. Without `--discard` it stops rather than drop an unsaved Set.
 
 See [AGENTS.md](AGENTS.md) for conventions and safety rules.
 
 ## Status and limits
 
-- Built and measured in the feasibility spike (#1): GLM-5.3 builds a complete, gated progressive house track in ~1–2 min; Claude Opus 5.5 in ~1.5–3.5 min with richer parts and automation.
-- Live creates clip automation only on session clips; automate in Session View, then place clips into the Arrangement (copies keep their envelopes). Track-lane arrangement automation goes through `live_arrangement_automation` (save, edit the file, reopen).
-- VST3 plug-ins: `live_vst` lists any plug-in's parameters and presets with an offline host (`pedalboard`, run via `uv` on demand), exposes chosen parameters to Live (up to 128), and loads `.vstpreset` files or parameter values as plug-in state through the Set file. Vendor-format presets and plug-in UIs need computer use (Hermes `computer_use`, after granting its Accessibility/Screen Recording permission).
+- Measured in the feasibility spike (#1): GLM-5.3 builds a complete, gated track in ~1–2 min; Claude Opus 5.5 in ~1.5–3.5 min with denser parts and automation.
+- Live creates clip automation only on session clips; automate in Session View, then place clips into the Arrangement (copies keep their envelopes). Arrangement lanes go through `live_arrangement_automation`.
+- Vendor-format presets and plug-in windows need Hermes `computer_use` (after granting its Accessibility and Screen Recording permission); `.vstpreset` files and parameter values load without the UI.
 - `live_set` covers Sets created or opened through it; Live's Save panel is never driven, so saving an untitled Set made by hand is left to the producer.
 - No audio export or audio analysis yet; QA is based on the arrangement and MIDI.
+
+## License
+
+[Apache License 2.0](LICENSE). Copyright 2026 Actual Computer.
