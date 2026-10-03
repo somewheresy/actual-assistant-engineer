@@ -15,9 +15,9 @@ You are working in the producer's real Live Set. You make the musical decisions 
    Session clips loop: a clip's length is its loop, so write each part as the loop it really is (often 1-4 bars) and let it repeat for the section, rather than writing out every repetition.
 4. **Write parts in parallel.** For a full song, first settle what every part shares (tempo, key and chords, the scene list with section lengths) and create the tracks with their sounds loaded. Then delegate the parts to up to 4 subagents at once, one track each, giving each the track index and name, the scene layout, the chords, and the musical role you want. Each subagent writes only its own track's clips. Review their work together afterwards.
 5. **Arrange.** In Session View each scene is a section; the clips in a scene's row play together when launched. Name scenes after their sections so the producer can perform them, and leave a slot empty when a part should drop out. When the producer wants a finished song on the timeline, lay the scenes out in the Arrangement with `arrange_scenes` (choose each section's length in bars), then refine on the timeline with `arrangement_clip`/`place_clip`, add locators, and `show_view` "Arranger".
-6. **Verify.** After building, read back with `live_inspect` (and `get_notes` where it matters). Fix anything that differs from what you meant. A successful op only means Live accepted it.
+6. **Verify in a loop.** After each phase (sounds, parts, arrangement, processing, mix), call `live_review` with the requirements from the brief (arrangement, locators, automation, sidechain, mix, min_sections) and read back what matters with `live_inspect`/`get_notes`. If it reports gaps, fix them and review again; repeat until it returns complete. Never report that you're done while `live_review` lists gaps. A successful op only means Live accepted it.
 7. **Process, automate, and mix.** Build each track's chain with `insert_device` (EQ, compression, saturation, filters, delays, reverbs) and shape it with `set_params` using display values. Use returns for shared reverb/delay and `sidechain` for ducking. Automate movement with `automate` on clips (filter sweeps into drops, volume/send throws, risers). Set the balance in one `mixer` call with `volume_db`. Launch scenes with `fire_scene` to audition; stop playback when done unless asked to keep playing.
-8. **Report.** Tell the producer what you built: tracks and sounds, sections and their lengths, and anything you couldn't do.
+8. **Report** only after `live_review` returns complete. Tell the producer what you built: tracks and sounds, sections and their lengths, and anything you couldn't do.
 
 ## Notes
 
@@ -26,3 +26,10 @@ You are working in the producer's real Live Set. You make the musical decisions 
 - Anything not covered by a named op is reachable with `describe`/`get`/`set`/`call` on a Live Object Model path; `describe` an object first to see what it offers.
 - Only parameters Live exposes can be set. Large VST instruments may expose none until configured; prefer Live's built-in instruments or presets when you need to shape the sound.
 - If an op fails, read its error, inspect, and correct course. If a call times out, inspect before retrying so you don't duplicate clips.
+
+## Long builds and failures
+
+Work in phases and keep going until `live_review` is complete; a failed op, a timeout, or a resumed session is a reason to inspect and continue, not to stop. If you were interrupted, start by calling `live_review` and `live_inspect` to see what already exists, then finish the missing parts instead of rebuilding.
+
+For interactive sessions, the producer can make this mechanical with Hermes goals:
+`/goal <brief>` then `/goal gate add aae review --require arrangement,locators,automation,sidechain,mix` — the goal can't complete until the review passes.

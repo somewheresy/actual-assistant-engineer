@@ -797,9 +797,27 @@ def _device_params(ctx, track, device, expect=None):
 def _drum_pads(ctx, track, device=0, expect=None):
     """List a Drum Rack's filled pads (MIDI note -> pad name)."""
     d = ctx.device(track, device, expect)
-    if not d.can_have_drum_pads:
-        raise OpError("%r is not a drum rack" % d.name)
-    return {"pads": [{"note": p.note, "name": p.name} for p in d.drum_pads if p.chains]}
+    rack = _find_drum_rack(d)
+    if rack is None:
+        raise OpError("%r has no Drum Rack inside it" % d.name)
+    out = {"pads": [{"note": p.note, "name": p.name} for p in rack.drum_pads if p.chains]}
+    if rack is not d:
+        out["rack"] = rack.name
+    return out
+
+
+def _find_drum_rack(device, depth=0):
+    """The device itself if it's a Drum Rack, else the first one nested in its chains."""
+    if device.can_have_drum_pads:
+        return device
+    if depth > 4 or not getattr(device, "can_have_chains", False):
+        return None
+    for chain in device.chains:
+        for inner in chain.devices:
+            found = _find_drum_rack(inner, depth + 1)
+            if found is not None:
+                return found
+    return None
 
 
 @op("set_param")

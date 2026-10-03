@@ -86,6 +86,15 @@ def live_ops(args, **_):
     return _result(_call(ops, timeout=60.0))
 
 
+def live_review(args, **_):
+    require = {k: True for k in ("arrangement", "locators", "automation", "sidechain", "mix") if args.get(k)}
+    for k in ("min_sections", "min_bars"):
+        if args.get(k):
+            require[k] = int(args[k])
+    res = _call([{"op": "review", "require": require}], timeout=60.0)
+    return _result(res["results"][0] if res.get("ok") else res)
+
+
 def live_browse(args, **_):
     searches = args.get("searches")
     if searches:
@@ -157,7 +166,24 @@ SCHEMAS = {
     },
 }
 
-HANDLERS = {"live_inspect": live_inspect, "live_ops": live_ops, "live_browse": live_browse}
+SCHEMAS["live_review"] = {
+    "name": "live_review",
+    "description": "Check the Set for completeness against what the producer asked for. Returns complete=true or a list of concrete gaps (empty clips, silent tracks, tracks missing from the arrangement, unnamed or missing section locators, no automation/sidechain/mix when required) plus arrangement length and sections. Call it after each phase and ALWAYS before reporting that you're done; if it lists gaps, fix them and call it again until complete.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "arrangement": {"type": "boolean", "description": "the song must be laid out in the Arrangement"},
+            "locators": {"type": "boolean", "description": "sections must be marked with named locators"},
+            "automation": {"type": "boolean"},
+            "sidechain": {"type": "boolean"},
+            "mix": {"type": "boolean", "description": "levels must have been balanced"},
+            "min_sections": {"type": "integer"},
+            "min_bars": {"type": "integer"},
+        },
+    },
+}
+
+HANDLERS = {"live_inspect": live_inspect, "live_ops": live_ops, "live_browse": live_browse, "live_review": live_review}
 
 
 def register(ctx):
