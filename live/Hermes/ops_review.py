@@ -116,15 +116,16 @@ def _analyze(ctx, ignore_tracks=()):
             clips = [c for c in t.arrangement_clips if c.start_time < stop and c.end_time > start]
             if not clips:
                 continue
-            notes, lo, hi, automated, names = 0, 127, 0, 0, set()
+            notes, lo, hi, automated, prints = 0, 127, 0, 0, set()
             for c in clips:
                 ns = _clip_notes(c)
                 notes += len(ns)
                 if ns:
                     lo, hi = min(lo, min(n.pitch for n in ns)), max(hi, max(n.pitch for n in ns))
                 automated += _envelopes(t, c)
-                names.add(c.name)
-            key = (t.name, tuple(sorted(names)))
+                prints.add(_fingerprint(c, ns))
+            # Repeats are judged by musical content (notes and length), not clip names.
+            key = (t.name, tuple(sorted(prints)))
             repeated_from = seen_clips.get(key)
             seen_clips.setdefault(key, name)
             parts.append({
@@ -154,3 +155,7 @@ def _analyze(ctx, ignore_tracks=()):
         "register_clashes": clashes,
         "mix": mix,
     }
+
+
+def _fingerprint(clip, notes):
+    return (round(clip.length, 3),) + tuple(sorted((n.pitch, round(n.start_time, 3), round(n.duration, 3)) for n in notes))

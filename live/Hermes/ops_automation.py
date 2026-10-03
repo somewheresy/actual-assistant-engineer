@@ -110,7 +110,12 @@ def _automate(ctx, track, slot=None, arrangement=None, target=None, points=(), c
     if clear:
         clip.clear_envelope(param)
     if clip.automation_envelope(param) is None:
-        clip.create_automation_envelope(param)
+        try:
+            clip.create_automation_envelope(param)
+        except RuntimeError as e:
+            if arrangement is not None:
+                raise OpError("Live can only create automation on session clips: automate the session clip (slot), then place it with place_clip/arrange_scenes; the copies keep its automation (%s)" % e)
+            raise
     env = clip.automation_envelope(param)
     lo, hi = param.min, param.max
     for time, duration, value in steps:
