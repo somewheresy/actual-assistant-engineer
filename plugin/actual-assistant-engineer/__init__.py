@@ -4,7 +4,7 @@ import json
 import platform
 from pathlib import Path
 
-from . import live_arrangement, live_client, live_sets
+from . import live_arrangement, live_client, live_sets, live_vst
 
 TOOLSET = "actual_assistant_engineer"
 
@@ -138,6 +138,30 @@ def live_arrangement_automation(args, **_):
     return _result(dict(out, ok=True))
 
 
+def live_vst(args, **_):
+    a = args.get("action")
+    try:
+        if a == "catalog":
+            out = {"plugins": live_vst.catalog(args.get("query"))}
+        elif a == "params":
+            out = live_vst.params(args["plugin"], args.get("query"), args.get("bundle_plugin"))
+        elif a == "presets":
+            out = live_vst.presets(args["plugin"], args.get("query"))
+        elif a == "programs":
+            out = live_vst.programs(args["track"], args["device"])
+        elif a == "select_program":
+            out = live_vst.select_program(args["track"], args["device"], args["program"])
+        elif a == "expose":
+            out = live_vst.expose(args["track"], args["device"], args["params"], args.get("bundle_plugin"))
+        elif a == "load_state":
+            out = live_vst.load_state(args["track"], args["device"], args.get("preset"), args.get("values"), args.get("bundle_plugin"))
+        else:
+            return _result({"ok": False, "error": "unknown action"})
+    except (live_vst.VstError, live_sets.SetError, ValueError, KeyError) as e:
+        return _result({"ok": False, "error": str(e)})
+    return _result(dict(out, ok=True))
+
+
 def live_browse(args, **_):
     searches = args.get("searches")
     if searches:
@@ -264,7 +288,24 @@ SCHEMAS["live_arrangement_automation"] = {
     },
 }
 
-HANDLERS = {"live_set": live_set, "live_arrangement_automation": live_arrangement_automation, "live_inspect": live_inspect, "live_ops": live_ops, "live_browse": live_browse, "live_review": live_review, "live_analyze": live_analyze}
+SCHEMAS["live_vst"] = {
+    "name": "live_vst",
+    "description": "Work inside VST3 plug-ins. catalog: installed VST3s. params: a plug-in's full parameter list by name (thousands for big synths), searchable. presets: preset files on disk for a plug-in (loadable=true for .vstpreset; vendor formats like .SerumPreset need the plug-in's own browser via computer use). programs / select_program: presets the plug-in exposes to Live directly. expose: make named parameters controllable from Live (then set_params, automate, macros work on them; up to 128). load_state: load a .vstpreset and/or set parameter values (by params name) as the plug-in's state. expose and load_state save the Set, edit its file, and reopen it. bundle_plugin picks one plug-in inside a multi-plug-in bundle (e.g. \"Serum 2\" vs \"Serum 2 FX\").",
+    "parameters": {
+        "type": "object",
+        "required": ["action"],
+        "properties": {
+            "action": {"type": "string", "enum": ["catalog", "params", "presets", "programs", "select_program", "expose", "load_state"]},
+            "plugin": {"type": "string"}, "bundle_plugin": {"type": "string"}, "query": {"type": "string"},
+            "track": {"type": "string"}, "device": {"type": ["string", "integer"]},
+            "program": {"type": ["string", "integer"]},
+            "params": {"type": "array", "items": {"type": "string"}},
+            "preset": {"type": "string"}, "values": {"type": "object"},
+        },
+    },
+}
+
+HANDLERS = {"live_set": live_set, "live_vst": live_vst, "live_arrangement_automation": live_arrangement_automation, "live_inspect": live_inspect, "live_ops": live_ops, "live_browse": live_browse, "live_review": live_review, "live_analyze": live_analyze}
 
 
 def register(ctx):

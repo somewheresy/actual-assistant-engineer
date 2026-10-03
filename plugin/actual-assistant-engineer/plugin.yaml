@@ -5,6 +5,7 @@ author: Actual Computer
 platforms: [macos]
 provides_tools:
   - live_set
+  - live_vst
   - live_arrangement_automation
   - live_inspect
   - live_ops

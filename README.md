@@ -9,7 +9,7 @@ macOS only. Plan and status: [#1](https://github.com/actual-computer/actual-assi
 ```
 Hermes (session model: GLM-5.3, Claude Opus 5.5, ...)
   └─ plugin/actual-assistant-engineer   tools: live_set, live_inspect, live_ops, live_browse, live_review,
-                                        live_analyze, live_arrangement_automation
+                                        live_analyze, live_arrangement_automation, live_vst
         │  Unix socket (0600, no TCP port), newline-delimited JSON batches
         ▼
 Ableton Live ── "Hermes" control surface (live/Hermes, runs inside Live's Python)
@@ -55,7 +55,7 @@ Then:
      max_concurrent_children: 4
      oneshot_max_children: 4
    ```
-3. Verify: `hermes plugins doctor actual-assistant-engineer` should report 7 tools.
+3. Verify: `hermes plugins doctor actual-assistant-engineer` should report 8 tools.
 
 Optional performance path: run `bin/hermes-midi` (publishes the "Hermes Performance" MIDI port), then in Live set the Hermes control surface's *Input* to **Hermes Performance** and turn off that port's *Track* input.
 
@@ -101,6 +101,6 @@ See [AGENTS.md](AGENTS.md) for conventions and safety rules.
 
 - Built and measured in the feasibility spike (#1): GLM-5.3 builds a complete, gated progressive house track in ~1–2 min; Claude Opus 5.5 in ~1.5–3.5 min with richer parts and automation.
 - Live creates clip automation only on session clips; automate in Session View, then place clips into the Arrangement (copies keep their envelopes). Track-lane arrangement automation goes through `live_arrangement_automation` (save, edit the file, reopen).
-- Large VST instruments expose no parameters until configured in Live; built-in instruments and presets are fully controllable.
+- VST3 plug-ins: `live_vst` lists any plug-in's parameters and presets with an offline host (`pedalboard`, run via `uv` on demand), exposes chosen parameters to Live (up to 128), and loads `.vstpreset` files or parameter values as plug-in state through the Set file. Vendor-format presets and plug-in UIs need computer use (Hermes `computer_use`, after granting its Accessibility/Screen Recording permission).
 - `live_set` covers Sets created or opened through it; Live's Save panel is never driven, so saving an untitled Set made by hand is left to the producer.
 - No audio export or audio analysis yet; QA is based on the arrangement and MIDI.
