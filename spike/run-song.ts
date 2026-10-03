@@ -19,6 +19,8 @@ const { values: args } = parseArgs({
     home: { type: "string", default: process.env.HERMES_HOME },
     discard: { type: "boolean", default: false },
     budget: { type: "string", default: "1800" },
+    provider: { type: "string" },
+    model: { type: "string" },
   },
 });
 if (!args.home) throw new Error("pass --home <HERMES_HOME> (configured with the model and plugin)");
@@ -47,6 +49,8 @@ async function hermes(query: string, resume?: string) {
   const cmd = ["hermes", "chat", "--oneshot", "-q", query, "-s", "actual-assistant-engineer:assistant-engineer", "-t", "actual_assistant_engineer,delegation",
     "--reasoning", "low", "--format", "stream-json", "--max-turns", "150", "--run-budget", args.budget!];
   if (resume) cmd.push("--resume", resume);
+  if (args.provider) cmd.push("--provider", args.provider);
+  if (args.model) cmd.push("-m", args.model);
   const out = Bun.file(transcript).writer();
   const err = Bun.file(stderrLog).writer();
   const proc = Bun.spawn(cmd, { env: { ...process.env, HERMES_HOME: args.home }, stdout: "pipe", stderr: "pipe" });
