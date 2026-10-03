@@ -32,3 +32,9 @@
 
 - Track work in GitHub issues; reference `#N` in commits. Branches: `<issue>/<short-description>`, one worktree per branch and per agent.
 - Update `README.md` and this file when install steps, tools, ops, or workflows change.
+
+## Generality
+
+- Nothing in code or config may assume a particular machine, Live edition, install path, plug-in, vendor, or preset format. Discover at runtime: the running/installed Live (`live_app.py`, `src/live/app.ts`), installed VST3s, preset folders, parameter lists, device types (`DeviceType`), browser contents.
+- Plug-in support is generic: parameters and state come from an offline host, preset files from standard and vendor folders, and anything vendor-specific goes through the plug-in's own UI (computer use), never through per-plug-in tables.
+- Specific names belong only in examples and recorded results, not in logic or tests' expectations about this machine.

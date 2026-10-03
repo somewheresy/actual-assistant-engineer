@@ -2,6 +2,7 @@
 // Live asks whether to save the current Set first; `onUnsaved` decides the answer.
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
+import { liveBundle } from "../src/live/app";
 import { LiveClient, SOCK_PATH } from "../src/live/client";
 
 const osa = (...lines: string[]) => {
@@ -13,7 +14,7 @@ const liveWindows = () => osa('tell application "System Events" to get name of w
 export async function openSet(path: string, onUnsaved: "dont-save" | "cancel" = "cancel", timeoutMs = 60_000) {
   const title = basename(path, ".als");
   const t0 = performance.now();
-  Bun.spawnSync(["open", "-a", "Ableton Live 12 Suite", path]);
+  Bun.spawnSync(["open", "-a", liveBundle(), path]);
   let dialog: string | undefined;
   while (performance.now() - t0 < timeoutMs) {
     await Bun.sleep(250);

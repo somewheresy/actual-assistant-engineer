@@ -143,6 +143,7 @@ class Device(Listenable):
         self.parameters = [DeviceParameter("Device On", 1.0, quantized=True)] + list(params)
         self.can_have_drum_pads, self.drum_pads = can_have_drum_pads, []
         self.is_active = True
+        self.type = 2
 
 
 class CompressorDevice(Device):

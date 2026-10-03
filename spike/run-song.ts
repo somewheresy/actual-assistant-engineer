@@ -4,6 +4,7 @@
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { parseArgs } from "node:util";
+import { defaultSet } from "../src/live/app";
 import { LiveClient } from "../src/live/client";
 import { measure } from "../src/song/measure";
 import { openSet, saveSetAs, screenshotLive } from "./open-set";
@@ -28,7 +29,7 @@ const { values: args } = parseArgs({
 
 const runDir = `${homedir()}/Documents/Ableton Live Projects/Hermes Demos/runs/${args.label!.replace(/[^\w .-]+/g, "")}`;
 mkdirSync(runDir, { recursive: true });
-const template = "/Applications/Ableton Live 12 Suite.app/Contents/App-Resources/Builtin/Templates/DefaultLiveSet.als";
+const template = defaultSet();
 const scratch = `${runDir}/start.als`;
 await Bun.write(scratch, Bun.file(template));
 const { live: opener } = await openSet(scratch, args.discard ? "dont-save" : "cancel");

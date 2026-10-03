@@ -3,13 +3,20 @@
 import { LiveClient } from "../src/live/client";
 
 type Param = { name: string; value: number; min: number; max: number; quantized: boolean };
-const PLUGINS: { vendor: string; name: string; kind: "midi" | "audio" }[] = [
-  { vendor: "Xfer Records", name: "Serum 2", kind: "midi" },
-  { vendor: "Arturia", name: "CMI V", kind: "midi" },
-  { vendor: "Kilohearts", name: "kHs Chorus", kind: "audio" },
-];
+// Pick plug-ins from what's installed: the first plug-in of the first few VST3 vendors.
+async function installed(live: LiveClient, count = 3) {
+  const vendors = (await live.run<{ ok: boolean; items: { name: string; folder: boolean }[] }>({ op: "browser_list", root: "plugins", path: ["VST3"] })).items.filter((i) => i.folder);
+  const out: { vendor: string; name: string; kind: "midi" }[] = [];
+  for (const v of vendors) {
+    const items = (await live.run<{ ok: boolean; items: { name: string; loadable: boolean }[] }>({ op: "browser_list", root: "plugins", path: ["VST3", v.name] })).items.filter((i) => i.loadable);
+    if (items[0]) out.push({ vendor: v.name, name: items[0].name, kind: "midi" });
+    if (out.length >= count) break;
+  }
+  return out;
+}
 
 const live = await new LiveClient().connect();
+const PLUGINS = await installed(live);
 const keep = process.argv.includes("--keep");
 for (const p of PLUGINS) {
   const trackName = `Hermes VST ${p.name}`;

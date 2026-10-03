@@ -20,7 +20,9 @@ from . import live_client, live_sets
 HOST = Path(__file__).with_name("vst_host.py")
 VST3_DIRS = [Path("/Library/Audio/Plug-Ins/VST3"), Path.home() / "Library/Audio/Plug-Ins/VST3"]
 PRESET_DIRS = [Path("/Library/Audio/Presets"), Path.home() / "Library/Audio/Presets", Path.home() / "Documents"]
-PRESET_EXT = {".vstpreset": True, ".fxp": False, ".fxb": False, ".serumpreset": False, ".nksf": False, ".h2p": False, ".adv": False}
+LOADABLE = {".vstpreset"}  # the standard VST3 preset format; vendor formats need the plug-in's own browser
+NOT_PRESETS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".pdf", ".txt", ".md", ".rtf", ".html", ".json", ".xml", ".plist", ".db",
+               ".wav", ".aif", ".aiff", ".mp3", ".flac", ".ogg", ".m4a", ".zip", ".dmg", ".pkg", ".app", ".log", ".ds_store", ""}
 CACHE = Path.home() / "Library/Caches/ActualAssistantEngineer/vst"
 
 
@@ -43,7 +45,7 @@ def _key(name):
 
 
 def _bundle(plugin):
-    """The .vst3 bundle for a plug-in name as Live shows it ("Serum 2" -> Serum2.vst3)."""
+    """The .vst3 bundle for a plug-in name as Live shows it (spacing/punctuation-insensitive)."""
     hits = [c for c in catalog() if _key(c["name"]) == _key(plugin)] or [c for c in catalog() if _key(plugin) in _key(c["name"])]
     if not hits:
         raise VstError("no VST3 named %r installed" % plugin)
@@ -98,8 +100,10 @@ def presets(plugin, query=None, limit=50):
                 continue
             for f in files:
                 ext = Path(f).suffix.lower()
-                if ext in PRESET_EXT and (not query or all(t in (root + "/" + f).lower() for t in query.lower().split())):
-                    found.append({"name": Path(f).stem, "path": os.path.join(root, f), "loadable": PRESET_EXT[ext], "format": ext[1:]})
+                if f.startswith(".") or ext in NOT_PRESETS:
+                    continue
+                if not query or all(t in (root + "/" + f).lower() for t in query.lower().split()):
+                    found.append({"name": Path(f).stem, "path": os.path.join(root, f), "loadable": ext in LOADABLE, "format": ext[1:]})
                     if len(found) >= limit:
                         return {"plugin": plugin, "presets": found, "truncated": True}
     return {"plugin": plugin, "presets": found}

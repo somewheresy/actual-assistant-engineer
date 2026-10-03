@@ -1,10 +1,10 @@
 // Measure what's in the open Live Set: a structural complexity profile of a finished track.
 import type { LiveClient } from "../live/client";
 
-type Track = { index: number; name: string; midi: boolean; devices: { name: string; class: string }[]; clips?: Record<string, { length: number }> };
+type Track = { index: number; name: string; midi: boolean; devices: { name: string; class: string; type: number }[]; clips?: Record<string, { length: number }> };
 type ArrClip = { index: number; start: number; end: number };
 
-const INSTRUMENTS = /Operator|Analog|Wavetable|Drift|Meld|Simpler|Sampler|Collision|Tension|Electric|InstrumentGroup|DrumGroup|Impulse|Plugin/i;
+const INSTRUMENT = 1; // Live DeviceType.instrument (racks report the type of what they hold)
 
 export type Complexity = {
   tempo: number;
@@ -58,7 +58,7 @@ export async function measure(live: LiveClient, skipTracks: Set<string> = new Se
   const endBeat = Math.max(0, ...arrClips.map((c) => c.end));
   const beatsPerBar = ov.signature[0] ?? 4;
   const devices = tracks.flatMap((t) => t.devices);
-  const isInstrument = (d: { name: string; class: string }) => INSTRUMENTS.test(d.class) && !/Effect/.test(d.class);
+  const isInstrument = (d: { type: number }) => d.type === INSTRUMENT;
   return {
     tempo: ov.tempo,
     tracks: tracks.length,

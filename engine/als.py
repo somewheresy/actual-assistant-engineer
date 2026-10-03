@@ -12,9 +12,16 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-LIVE_APP = Path("/Applications/Ableton Live 12 Suite.app/Contents/App-Resources")
+def live_resources():
+    """App-Resources of the newest installed Ableton Live (any edition)."""
+    apps = sorted(p for base in (Path("/Applications"), Path.home() / "Applications") for p in base.glob("Ableton Live*.app"))
+    if not apps:
+        raise FileNotFoundError("no Ableton Live app found")
+    return apps[-1] / "Contents" / "App-Resources"
+
+
 TEMPLATES = {
-    "quick-start-song": LIVE_APP / "Core Library/Templates/Quick Start Song.als",
+    "quick-start-song": lambda: live_resources() / "Core Library/Templates/Quick Start Song.als",
 }
 POINTEE_TAGS = {"AutomationTarget", "ModulationTarget", "Pointee"}
 
@@ -181,7 +188,7 @@ def resolve_target(track, target):
 
 
 def generate(spec):
-    tree = load(TEMPLATES[spec.get("template", "quick-start-song")])
+    tree = load(TEMPLATES[spec.get("template", "quick-start-song")]())
     liveset = tree.getroot().find("LiveSet")
     ids = Ids(liveset)
     tracks = {track_name(t): t for t in liveset.find("Tracks")}

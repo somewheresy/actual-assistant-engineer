@@ -290,7 +290,7 @@ SCHEMAS["live_arrangement_automation"] = {
 
 SCHEMAS["live_vst"] = {
     "name": "live_vst",
-    "description": "Work inside VST3 plug-ins. catalog: installed VST3s. params: a plug-in's full parameter list by name (thousands for big synths), searchable. presets: preset files on disk for a plug-in (loadable=true for .vstpreset; vendor formats like .SerumPreset need the plug-in's own browser via computer use). programs / select_program: presets the plug-in exposes to Live directly. expose: make named parameters controllable from Live (then set_params, automate, macros work on them; up to 128). load_state: load a .vstpreset and/or set parameter values (by params name) as the plug-in's state. expose and load_state save the Set, edit its file, and reopen it. bundle_plugin picks one plug-in inside a multi-plug-in bundle (e.g. \"Serum 2\" vs \"Serum 2 FX\").",
+    "description": "Work inside VST3 plug-ins. catalog: installed VST3s. params: a plug-in's full parameter list by name (thousands for big synths), searchable. presets: preset files on disk for a plug-in (loadable=true for .vstpreset; vendor formats need the plug-in's own browser via computer use). programs / select_program: presets the plug-in exposes to Live directly. expose: make named parameters controllable from Live (then set_params, automate, macros work on them; up to 128). load_state: load a .vstpreset and/or set parameter values (by params name) as the plug-in's state. expose and load_state save the Set, edit its file, and reopen it. bundle_plugin picks one plug-in inside a .vst3 bundle that contains several (normally inferred from the device name).",
     "parameters": {
         "type": "object",
         "required": ["action"],

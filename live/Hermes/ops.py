@@ -326,7 +326,8 @@ def _track_summary(t, i, slots):
         "solo": t.solo,
         "volume": t.mixer_device.volume.value,
         "pan": t.mixer_device.panning.value,
-        "devices": [{"name": d.name, "class": d.class_name} for d in t.devices],
+        # type: Live's DeviceType (1 instrument, 2 audio effect, 4 MIDI effect).
+        "devices": [{"name": d.name, "class": d.class_name, "type": int(d.type)} for d in t.devices],
         "playing_slot": t.playing_slot_index,
     }
     if slots:

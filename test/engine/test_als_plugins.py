@@ -11,7 +11,7 @@ P = importlib.import_module("actual-assistant-engineer.als_plugins")
 
 SLOT = '<PluginFloatParameter Id="{i}"><ParameterName Value="" /><ParameterId Value="-1" /><VisualIndex Value="1073741823" /></PluginFloatParameter>'
 DEVICE = (
-    '<PluginDevice><PluginDesc><Vst3PluginInfo><Name Value="Serum 2" /><Preset><Vst3Preset>'
+    '<PluginDevice><PluginDesc><Vst3PluginInfo><Name Value="Example Synth" /><Preset><Vst3Preset>'
     "<ProcessorState>AA</ProcessorState><ControllerState>BB</ControllerState></Vst3Preset></Preset></Vst3PluginInfo></PluginDesc>"
     "<ParameterList>%s</ParameterList></PluginDevice>" % "".join(SLOT.format(i=i) for i in range(4))
 )
@@ -39,4 +39,4 @@ def test_set_state_replaces_both_blobs():
     d = ET.fromstring(DEVICE)
     P.set_state(d, "58666572", "CAFE")
     assert P.state(d) == (["58666572"], ["CAFE"])
-    assert P.plugin_name(d) == "Serum 2"
+    assert P.plugin_name(d) == "Example Synth"

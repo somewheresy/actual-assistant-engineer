@@ -21,7 +21,7 @@ You are working in the producer's real Live Set. You make the musical decisions 
 
 ## Plug-ins (VST3)
 
-Use `live_vst` to work inside third-party plug-ins. Find the plug-in (`catalog`), its parameters by name (`params`, e.g. query "filter freq"), and its presets (`programs` for presets the plug-in exposes to Live, `presets` for preset files on disk). Switch exposed programs with `select_program`; load `.vstpreset` files or exact parameter values with `load_state`. Big synths expose nothing to Live by default: `expose` the parameters you want to control (up to 128), then use `set_params` and automation on them like any device. Vendor-format presets (e.g. `.SerumPreset`) and custom plug-in pages need the plug-in's own window via computer use, when it's available.
+Use `live_vst` to work inside third-party plug-ins. Find the plug-in (`catalog`), its parameters by name (`params`, e.g. query "filter freq"), and its presets (`programs` for presets the plug-in exposes to Live, `presets` for preset files on disk). Switch exposed programs with `select_program`; load `.vstpreset` files or exact parameter values with `load_state`. Big synths expose nothing to Live by default: `expose` the parameters you want to control (up to 128), then use `set_params` and automation on them like any device. Vendor-format presets and custom plug-in pages need the plug-in's own window via computer use, when it's available.
 
 ## Sets and saving
 

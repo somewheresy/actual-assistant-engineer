@@ -14,11 +14,9 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import live_client
+from . import live_app, live_client
 
 DEFAULT_DIR = Path.home() / "Documents" / "Ableton Live Projects" / "Hermes"
-LIVE_APP = "Ableton Live 12 Suite"
-TEMPLATE = Path("/Applications/Ableton Live 12 Suite.app/Contents/App-Resources/Builtin/Templates/DefaultLiveSet.als")
 
 
 class SetError(Exception):
@@ -125,7 +123,7 @@ def open_set(path, on_unsaved="cancel"):
     path = Path(path).expanduser()
     if not path.exists():
         raise SetError("no Set at %s" % path)
-    subprocess.run(["open", "-a", LIVE_APP, str(path)], check=True)
+    subprocess.run(["open", "-a", str(live_app.bundle()), str(path)], check=True)
     time.sleep(1.0)
     answered = _handle_dialogs(on_unsaved)
     live = _wait_for_bridge(path.stem)
@@ -138,7 +136,7 @@ def new(name, directory=None, on_unsaved="cancel"):
     if path.exists():
         raise SetError("%s already exists; pick another name or open it" % path)
     (folder / "Ableton Project Info").mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(TEMPLATE, path)
+    shutil.copyfile(live_app.default_set(), path)
     return open_set(path, on_unsaved)
 
 
