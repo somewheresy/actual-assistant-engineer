@@ -2,7 +2,7 @@
 
 Hermes operates Ableton Live as your assistant engineer. Ask in plain language — *"make a future beat"*, *"split the kick onto its own track and sidechain everything from it"*, *"automate the filter into the drop"* — and it builds, arranges, processes, mixes, and checks the track in your Live Set. Every musical decision comes from the model your Hermes runs; the plugin gives it hands and checks.
 
-macOS, Ableton Live 12.4+ (any edition). Step-by-step guide: [Getting started](https://github.com/somewheresy/actual-assistant-engineer/blob/main/docs/getting-started.md).
+macOS and Windows, Ableton Live 12.4+ (any edition). Windows qualification status and prerequisites: [Windows setup](https://github.com/somewheresy/actual-assistant-engineer/blob/main/docs/windows.md). Step-by-step guide: [Getting started](https://github.com/somewheresy/actual-assistant-engineer/blob/main/docs/getting-started.md).
 
 ## Install
 
@@ -64,10 +64,10 @@ Locally hosted models are for iterative requests, not whole-song building. When 
 
 ## What it touches
 
-- A Unix socket (`~/Library/Application Support/ActualAssistantEngineer/live.sock`, owner-only) between Hermes and Live; no network ports.
-- Files: the control surface link in Live's User Library, Set files it creates or saves (default `~/Documents/Ableton Live Projects/Hermes`), and a parameter cache in `~/Library/Caches/ActualAssistantEngineer`.
-- Subprocesses: `osascript` (clicks Live's own File menu items and dialog buttons through Accessibility — never keystrokes), `open`, and an offline VST3 host (`pedalboard`) that loads installed plug-ins to read parameters and state.
-- No network access and no credentials.
+- macOS: an owner-only Unix socket. Windows: an exclusive ephemeral `127.0.0.1` listener with HMAC-authenticated requests/responses and a protected current-user endpoint file under `%LOCALAPPDATA%/ActualAssistantEngineer`. No remote listener; no fixed port.
+- Files: a verified control-surface copy in Live's User Library (previous versions are backed up), Set files it creates/saves, and profile-scoped setup metadata/parameter cache under Hermes plugin data.
+- Subprocesses: macOS uses `osascript`/`open`; Windows uses process-scoped UI Automation invocation, explicit Live executable launch, and (if needed) isolated x64 workers. The offline VST3 host (`pedalboard`) loads installed plug-ins. No synthesized global keystrokes.
+- Windows uses local loopback networking and a generated local transport key (not an account credential). If `uv` must provision an isolated VST/UIA worker, its first use downloads Python/packages. Subsequent control is local.
 
 ## License
 

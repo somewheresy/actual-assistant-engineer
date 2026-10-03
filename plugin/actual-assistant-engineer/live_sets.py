@@ -33,6 +33,9 @@ def _is_windows():
 
 
 def _windows_ui():
+    # Force dependency resolution before returning the native adapter.
+    import pywinauto  # noqa: F401
+    import psutil  # noqa: F401
     from .windows_ui import LiveUI
     return LiveUI(live_app.bundle())
 
@@ -40,11 +43,44 @@ def _windows_ui():
 def _win_call(method, *args, **kwargs):
     from .windows_ui import UIError, WindowNotReady
     try:
-        return getattr(_windows_ui(), method)(*args, **kwargs)
+        try:
+            ui = _windows_ui()
+        except ImportError:
+            return _win_worker(method, *args, **kwargs)
+        return getattr(ui, method)(*args, **kwargs)
     except WindowNotReady as exc:
         raise _WindowNotReady(str(exc)) from exc
     except (UIError, OSError) as exc:
         raise SetError(str(exc)) from exc
+
+
+def _win_worker(method, *args, **kwargs):
+    """Use x64 UIA dependencies under Prism when native wheels are unavailable."""
+    import json
+    from types import SimpleNamespace
+    uv = shutil.which("uv")
+    if not uv:
+        raise SetError("Windows accessibility needs pywinauto/psutil or uv for an isolated x64 worker")
+    command = [uv, "run", "-q", "--no-project", "--isolated", "--python",
+               "cpython-3.11-windows-x86_64-none", "--with", "pywinauto", "--with", "psutil",
+               "python", str(Path(__file__).with_name("windows_ui_host.py"))]
+    request = {"exe": str(live_app.bundle()), "method": method, "args": args, "kwargs": kwargs}
+    try:
+        result = subprocess.run(command, input=json.dumps(request), capture_output=True,
+                                text=True, encoding="utf-8", timeout=120)
+        if result.returncode:
+            raise SetError("Windows UIA worker failed: " + result.stderr[-1000:])
+        reply = json.loads(result.stdout)
+        if "error" in reply:
+            error = _WindowNotReady if reply.get("kind") == "WindowNotReady" else SetError
+            raise error(reply["error"])
+        state = reply["result"]
+        if method == "snapshot" and state is not None:
+            return SimpleNamespace(name=state["name"], identity=tuple(state["identity"]),
+                                   dialogs=tuple(SimpleNamespace(**d) for d in state["dialogs"]))
+        return state
+    except (OSError, ValueError, KeyError, subprocess.TimeoutExpired) as exc:
+        raise SetError("Windows UIA worker failed; outcome unknown, inspect Live before retrying: %s" % exc) from exc
 
 
 def _osa(script, timeout=15):
