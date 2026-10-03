@@ -161,6 +161,46 @@ class CompressorDevice(Device):
 DEVICE_CLASSES = {"Compressor": CompressorDevice}
 
 
+class Chain(Listenable):
+    def __init__(self, name="Chain"):
+        self.name, self.color = name, 0
+        self.devices = []
+        self.mixer_device = MixerDevice(sends=0)
+        self.mute = self.solo = False
+        self.in_note, self.out_note, self.choke_group = 36, 36, 0
+
+    def insert_device(self, name, index=-1):
+        d = make_device(name)
+        self.devices.insert(len(self.devices) if index < 0 else index, d)
+        return d
+
+
+class RackDevice(Device):
+    def __init__(self, name, drum=False):
+        Device.__init__(self, name, "DrumGroupDevice" if drum else "InstrumentGroupDevice", can_have_drum_pads=drum)
+        self.can_have_chains = True
+        self.chains = []
+        self.visible_macro_count = 8
+        self.parameters += [DeviceParameter("Macro %d" % (i + 1), 0.0, 0.0, 127.0) for i in range(16)]
+
+    def insert_chain(self, index=-1):
+        self.chains.insert(len(self.chains) if index < 0 else index, Chain())
+
+    def add_macro(self):
+        if self.visible_macro_count < 16:
+            self.visible_macro_count += 1
+
+
+def make_device(name):
+    if name in ("Instrument Rack", "Audio Effect Rack", "MIDI Effect Rack"):
+        return RackDevice(name)
+    if name == "Drum Rack":
+        return RackDevice(name, drum=True)
+    if name in DEVICE_CLASSES:
+        return DEVICE_CLASSES[name](name)
+    return Device(name)
+
+
 class MixerDevice:
     def __init__(self, sends=2):
         self.volume = DeviceParameter("Track Volume", 0.85)
@@ -193,7 +233,7 @@ class Track(Listenable):
         self.playing_slot_index = -1
 
     def insert_device(self, name, index=-1):
-        d = DEVICE_CLASSES.get(name, Device)(name)
+        d = make_device(name)
         self.devices.insert(len(self.devices) if index < 0 else index, d)
         return d
 

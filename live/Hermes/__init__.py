@@ -3,7 +3,7 @@ import importlib
 from . import bridge, ops
 
 # Op modules beyond the core; each registers its ops into ops.OPS on import.
-EXTENSIONS = ("ops_lom", "ops_mix", "ops_automation", "ops_review")
+EXTENSIONS = ("ops_lom", "ops_mix", "ops_automation", "ops_review", "ops_devices")
 
 
 def load_ops():
