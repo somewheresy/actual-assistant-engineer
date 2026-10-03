@@ -379,3 +379,6 @@ class FakeSurface:
 
     def set_perf_bindings(self, bindings):
         self.bindings = bindings
+
+    def schedule_message(self, delay, callback):
+        callback()

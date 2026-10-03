@@ -62,7 +62,9 @@ export async function saveSetAs(dir: string, name: string) {
 
 /** Screenshot Live's main window (Arrangement or Session, whichever is showing). */
 export function screenshotLive(path: string) {
-  const b = osa('tell application "System Events" to tell process "Live" to get {position, size} of (first window whose subrole is "AXStandardWindow")').split(", ").map(Number);
-  Bun.spawnSync(["screencapture", "-x", "-R", `${b[0]},${b[1]},${b[2]},${b[3]}`, path]);
+  // Capture Live's own window by id: works when it's behind other windows and never captures anything else.
+  const id = Bun.spawnSync(["./bin/window-id", "Live"]).stdout.toString().trim();
+  if (!id) return undefined;
+  Bun.spawnSync(["screencapture", "-x", "-o", "-l", id, path]);
   return existsSync(path) ? path : undefined;
 }

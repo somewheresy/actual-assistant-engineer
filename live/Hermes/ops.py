@@ -212,11 +212,16 @@ def _vol_cb(ctx, param, i):
 
 
 UNITS = {"khz": 1000.0, "hz": 1.0, "db": 1.0, "%": 1.0, "ms": 1.0, "s": 1000.0}
+RATIO = re.compile(r"^\s*(inf|\d+(?:\.\d+)?)\s*:\s*1\s*$", re.I)
 DISPLAY = re.compile(r"^\s*(-?inf|-?\d+(?:\.\d+)?)\s*(khz|hz|db|%|ms|s)?\s*$", re.I)
 
 
 def parse_display(text):
     """'2.5 kHz' -> (2500.0, 'hz'); '-6 dB' -> (-6.0, 'db'); None when not a number with a known unit."""
+    ratio = RATIO.match(str(text))
+    if ratio:
+        x = ratio.group(1).lower()
+        return (float("inf") if x == "inf" else float(x)), "ratio"
     m = DISPLAY.match(str(text))
     if not m:
         return None
@@ -224,6 +229,22 @@ def parse_display(text):
     number = -float("inf") if m.group(1).lower() == "-inf" else float("inf") if m.group(1).lower() == "inf" else float(m.group(1))
     family = {"khz": "hz", "s": "ms"}.get(unit, unit)
     return number * UNITS.get(unit, 1.0), family
+
+
+def _quantized_value(p, value, target):
+    """Stepped parameters: match a choice by its text, else the choice nearest in value and unit."""
+    items = [str(i) for i in p.value_items]
+    if value in items:
+        return float(items.index(value))
+    if target is not None:
+        scored = []
+        for i, item in enumerate(items):
+            parsed = parse_display(item) or parse_display(item + " " + target[1]) if target[1] else parse_display(item)
+            if parsed and (not target[1] or parsed[1] in (target[1], "")):
+                scored.append((abs(parsed[0] - target[0]), i))
+        if scored:
+            return float(min(scored)[1])
+    raise OpError("%r takes one of: %s" % (p.name, ", ".join(items)))
 
 
 def param_value(p, value):
@@ -235,9 +256,9 @@ def param_value(p, value):
     if not isinstance(value, str):
         return max(p.min, min(p.max, float(value)))
     target = parse_display(value)
+    if p.is_quantized and list(p.value_items):
+        return _quantized_value(p, value, target)
     if target is None:
-        if p.is_quantized and value in list(p.value_items):
-            return float(list(p.value_items).index(value))
         raise OpError("cannot read %r as a value for %r (give a number in %s..%s or a display value like %r)" % (value, p.name, p.min, p.max, p.str_for_value(p.max)))
     want, family = target
     shown = lambda v: parse_display(p.str_for_value(v))
@@ -436,9 +457,14 @@ def _set_track(ctx, track, expect=None, name=None, color=None, mute=None, solo=N
         t.mixer_device.volume.value = float(volume)
     if pan is not None:
         t.mixer_device.panning.value = float(pan)
-    for i, v in enumerate(sends or []):
+    if isinstance(sends, dict):  # {"A": 0.3} as well as [0.3, ...]
+        sends = {(ord(k.upper()) - 65 if isinstance(k, str) and len(k) == 1 and k.isalpha() else int(k)): v for k, v in sends.items()}.items()
+    else:
+        sends = enumerate(sends or [])
+    for i, v in sends:
         if v is not None:
-            t.mixer_device.sends[i].value = float(v)
+            p = _index(t.mixer_device.sends, i, "send")
+            p.value = param_value(p, v)
     return _track_summary(t, list(ctx.song.tracks).index(t) if t in list(ctx.song.tracks) else -1, False)
 
 
@@ -600,6 +626,38 @@ def _arr_clip_summary(i, c):
     return {"index": i, "name": c.name, "start": c.start_time, "end": c.end_time, "midi": c.is_midi_clip}
 
 
+def _mark(ctx, time, name):
+    """Queue a named locator. Live applies a song-position change on the next tick and registers
+    a new cue point after that, so each locator takes three ticks: move, add, name."""
+    queue = ctx.surface.__dict__.setdefault("_locator_queue", [])
+    queue.append((float(time), name))
+    if len(queue) == 1:
+        _locator_step(ctx, "move")
+
+
+def _locator_step(ctx, phase):
+    queue = ctx.surface.__dict__.get("_locator_queue") or []
+    if not queue:
+        return
+    song = ctx.song
+    time, name = queue[0]
+    at = [c for c in song.cue_points if abs(c.time - time) < 1e-6]
+    if phase == "move":
+        song.current_song_time = time
+        nxt = "add"
+    elif phase == "add":
+        if (name is None) == bool(at):  # add when missing, or delete when name is None and one exists
+            song.set_or_delete_cue()
+        nxt = "name"
+    else:
+        for c in at if name is not None else []:
+            c.name = name
+        queue.pop(0)
+        nxt = "move"
+    if queue:
+        ctx.surface.schedule_message(1, lambda: _locator_step(ctx, nxt))
+
+
 @op("arrangement")
 def _arrangement(ctx, tracks=None):
     """Arrangement timeline: clips per track (beats) and locators."""
@@ -670,12 +728,7 @@ def _arrange_scenes(ctx, sections, locators=True):
             if row < len(slots) and slots[row].has_clip:
                 placed += _place(track, slots[row].clip, t, beats)
         if locators:
-            song.current_song_time = t
-            if not any(abs(c.time - t) < 1e-6 for c in song.cue_points):
-                song.set_or_delete_cue()
-            for c in song.cue_points:
-                if abs(c.time - t) < 1e-6:
-                    c.name = sec.get("name", scene.name)
+            _mark(ctx, t, sec.get("name") or scene.name)
         out.append({"scene": scene.name, "start": t, "beats": beats, "clips": placed})
         t += beats
     song.current_song_time = 0.0
@@ -698,14 +751,14 @@ def _clear_arrangement(ctx, track=None, start=0.0, end=None, expect=None):
 
 @op("locator")
 def _locator(ctx, time, name):
-    song = ctx.song
-    song.current_song_time = float(time)
-    if not any(abs(c.time - float(time)) < 1e-6 for c in song.cue_points):
-        song.set_or_delete_cue()
-    for c in song.cue_points:
-        if abs(c.time - float(time)) < 1e-6:
-            c.name = name
+    _mark(ctx, time, name)
     return {"time": float(time), "name": name}
+
+
+@op("delete_locator")
+def _delete_locator(ctx, time):
+    _mark(ctx, time, None)
+    return {"time": float(time)}
 
 
 @op("show_view")

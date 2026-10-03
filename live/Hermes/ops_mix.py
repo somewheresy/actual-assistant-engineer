@@ -95,7 +95,10 @@ def _set_param_value(p, value):
 
 
 @op("insert_device")
-def _insert_device(ctx, track, name, index=-1, expect=None):
+def _insert_device(ctx, track, name=None, index=-1, expect=None, device=None):
+    name = name or device  # models often say device=
+    if not name:
+        raise OpError("insert_device needs name (a native device like \"Compressor\")")
     t = ctx.track(track, expect)
     devices = list(t.devices)
     idx = len(devices) if index is None or index < 0 else index

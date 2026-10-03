@@ -67,6 +67,8 @@ const agent = {
 const live = await new LiveClient().connect();
 const complexity = await measure(live, baseline);
 await live.run({ op: "show_view", view: "Arranger" });
+// Zoom the timeline out so the screenshot shows the whole song (NavDirection.left = zoom out).
+await live.batch(Array.from({ length: 30 }, () => ({ op: "call", path: "app.view", method: "zoom_view", args: [2, "Arranger", false] })));
 live.close();
 await Bun.sleep(500);
 const shot = screenshotLive(`${runDir}/arrangement.png`);
