@@ -1,8 +1,65 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { closeSync, lstatSync, openSync, readSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Socket } from "bun";
 
 export const SOCK_PATH = join(homedir(), "Library/Application Support/ActualAssistantEngineer/live.sock");
+const WINDOWS = process.platform === "win32";
+export const ENDPOINT_PATH = WINDOWS
+  ? join(process.env.LOCALAPPDATA || join(homedir(), "AppData/Local"), "ActualAssistantEngineer/live.endpoint.json")
+  : SOCK_PATH;
+export const MAX_FRAME = 64 * 1024 * 1024;
+
+/** Validate OS protection before reading the Windows capability. No shell or
+ * user-controlled command interpolation; PowerShell ships with Windows. */
+export function readEndpoint(path = ENDPOINT_PATH): { unix: string } | { hostname: string; port: number; token: string } {
+  if (!isAbsolute(path)) throw new Error("Live endpoint path must be absolute");
+  if (!WINDOWS) {
+    for (const [p, directory] of [[dirname(path), true], [path, false]] as const) {
+      const st = lstatSync(p);
+      if (st.isSymbolicLink() || st.uid !== process.getuid!() || (st.mode & 0o077)
+          || (directory ? !st.isDirectory() : !st.isSocket())) throw new Error("insecure Live Unix socket");
+    }
+    return { unix: path };
+  }
+  const script = String.raw`
+    $ErrorActionPreference = 'Stop'
+    $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    foreach ($p in @((Split-Path -LiteralPath $env:AAE_ENDPOINT_PATH), $env:AAE_ENDPOINT_PATH)) {
+      $item = Get-Item -LiteralPath $p -Force
+      if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'reparse point' }
+      $acl = Get-Acl -LiteralPath $p
+      $sd = [System.Security.AccessControl.RawSecurityDescriptor]::new($acl.GetSecurityDescriptorBinaryForm(), 0)
+      if (!$acl.AreAccessRulesProtected -or $sd.Owner.Value -ne $sid -or $sd.DiscretionaryAcl.Count -ne 1) { throw 'insecure ACL' }
+      $ace = $sd.DiscretionaryAcl[0]
+      if ($ace.SecurityIdentifier.Value -ne $sid -or $ace.AceQualifier -ne 'AccessAllowed' -or [int]$ace.AceFlags -ne 0 -or $ace.AccessMask -ne 2032127) { throw 'insecure ACE' }
+    }
+  `;
+  try {
+    execFileSync(join(process.env.SystemRoot || "C:/Windows", "System32/WindowsPowerShell/v1.0/powershell.exe"),
+      ["-NoProfile", "-NonInteractive", "-Command", script],
+      { env: { ...process.env, AAE_ENDPOINT_PATH: resolve(path) }, timeout: 5000, windowsHide: true, stdio: "pipe" });
+    if (!lstatSync(dirname(path)).isDirectory() || !lstatSync(path).isFile()) throw new Error("invalid endpoint type");
+    const fd = openSync(path, "r");
+    let text: string;
+    try {
+      const buf = Buffer.alloc(4097);
+      const n = readSync(fd, buf, 0, buf.length, 0);
+      if (n > 4096) throw new Error("endpoint too large");
+      text = buf.subarray(0, n).toString("utf8");
+    } finally { closeSync(fd); }
+    const e = JSON.parse(text);
+    if (e?.protocol !== 1 || e.transport !== "tcp" || e.auth !== "hmac-sha256" || e.host !== "127.0.0.1"
+        || !Number.isInteger(e.port) || e.port < 1 || e.port > 65535
+        || typeof e.token !== "string" || !/^[0-9a-f]{64}$/.test(e.token)) throw new Error("invalid endpoint");
+    return { hostname: "127.0.0.1", port: e.port, token: e.token };
+  } catch {
+    // Never include endpoint contents or a child-process exception in errors.
+    throw new Error("invalid or insecure Live endpoint");
+  }
+}
 
 export type Op = { op: string } & Record<string, unknown>;
 export type OpResult = { ok: boolean; error?: string } & Record<string, unknown>;
@@ -14,27 +71,41 @@ type Pending = { resolve: (r: BatchResponse) => void; reject: (e: Error) => void
 /** Connection to the Hermes control surface running inside Live. */
 export class LiveClient {
   private socket?: Socket<undefined>;
-  private buf = "";
+  private buf = Buffer.alloc(0);
   private outbuf = Buffer.alloc(0);
-  private decoder = new TextDecoder();
+  private decoder = new TextDecoder("utf-8", { fatal: true });
+  private generation = 0;
+  private connecting = false;
   private nextId = 1;
+  private token?: string;
   private pending = new Map<number, Pending>();
   onEvent?: (e: LiveEvent) => void;
   onClose?: () => void;
 
-  constructor(private path = SOCK_PATH) {}
+  constructor(private path = ENDPOINT_PATH, private maxFrame = MAX_FRAME) {
+    if (!Number.isInteger(maxFrame) || maxFrame < 1 || maxFrame > MAX_FRAME) throw new Error("invalid frame limit");
+  }
 
   async connect(): Promise<this> {
-    this.socket = await Bun.connect({
-      unix: this.path,
-      socket: {
-        data: (_s, chunk) => this.receive(this.decoder.decode(chunk, { stream: true })),
-        drain: () => this.flush(),
-        close: () => this.closed(new Error("Live connection closed")),
-        error: (_s, err) => this.closed(err),
-      },
-    });
-    return this;
+    if (this.socket || this.connecting) throw new Error("already connected or connecting");
+    this.connecting = true;
+    const generation = ++this.generation;
+    try {
+      const endpoint = readEndpoint(this.path);
+      this.token = "token" in endpoint ? endpoint.token : undefined;
+      const handlers = {
+        data: (_s: Socket<undefined>, chunk: Buffer) => { if (generation === this.generation) this.receive(chunk); },
+        drain: () => { if (generation === this.generation) this.flush(); },
+        close: () => { if (generation === this.generation) this.closed("Live connection closed"); },
+        error: () => { if (generation === this.generation) this.closed("Live connection failed"); },
+      };
+      const socket = await ("unix" in endpoint
+        ? Bun.connect({ unix: endpoint.unix, socket: handlers })
+        : Bun.connect({ hostname: endpoint.hostname, port: endpoint.port, socket: handlers }));
+      if (generation !== this.generation) { socket.terminate(); throw new Error("Live disconnected before request; nothing sent"); }
+      this.socket = socket;
+      return this;
+    } finally { this.connecting = false; }
   }
 
   /** Run ops as one batch (one undo step) and return per-op results. */
@@ -59,21 +130,31 @@ export class LiveClient {
   }
 
   close() {
-    this.socket?.end();
+    this.closed("Live connection closed");
   }
 
   private request(body: Record<string, unknown>, timeoutMs: number): Promise<BatchResponse> {
     const socket = this.socket;
     if (!socket) return Promise.reject(new Error("not connected"));
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return Promise.reject(new Error("timeout must be positive; nothing sent"));
     const id = this.nextId++;
+    let frame: Buffer;
+    try {
+      const text = JSON.stringify({ id, ...body });
+      const envelope = this.token ? JSON.stringify({ body: text, mac: this.mac(text, "request") }) : text;
+      frame = Buffer.from(envelope + "\n");
+      if (frame.length > this.maxFrame + 1 || this.outbuf.length + frame.length > this.maxFrame + 1) {
+        return Promise.reject(new Error("Live request exceeds frame limit; nothing sent"));
+      }
+    } catch { return Promise.reject(new Error("invalid Live request; nothing sent")); }
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pending.delete(id);
-        // The batch may still execute in Live; callers must reconcile before retrying.
-        reject(new Error(`request ${id} timed out after ${timeoutMs}ms (outcome unknown)`));
+        // Discard unsent bytes; never finish a timed-out request on a later
+        // drain callback or replay it on reconnect. Sent mutations may execute.
+        this.closed(`request ${id} timed out after ${timeoutMs}ms`);
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      this.outbuf = Buffer.concat([this.outbuf, Buffer.from(JSON.stringify({ id, ...body }) + "\n")]);
+      this.outbuf = Buffer.concat([this.outbuf, frame]);
       this.flush();
     });
   }
@@ -81,37 +162,57 @@ export class LiveClient {
   // Bun sockets don't buffer: write() may accept only part of the data.
   private flush() {
     if (!this.socket || this.outbuf.length === 0) return;
-    const n = this.socket.write(this.outbuf);
-    if (n > 0) this.outbuf = this.outbuf.subarray(n);
+    try {
+      const n = this.socket.write(this.outbuf);
+      if (n < 0) this.closed("Live write failed");
+      else if (n > 0) this.outbuf = this.outbuf.subarray(n);
+    } catch { this.closed("Live write failed"); }
   }
 
-  private receive(chunk: string) {
-    this.buf += chunk;
-    let nl: number;
-    while ((nl = this.buf.indexOf("\n")) >= 0) {
-      const line = this.buf.slice(0, nl);
-      this.buf = this.buf.slice(nl + 1);
-      if (!line) continue;
-      const msg = JSON.parse(line);
-      if (msg.event) {
-        this.onEvent?.(msg);
-        continue;
+  private receive(chunk: Uint8Array) {
+    this.buf = Buffer.concat([this.buf, chunk]);
+    try {
+      let nl: number;
+      while ((nl = this.buf.indexOf(10)) >= 0) {
+        if (nl > this.maxFrame) throw new Error("frame limit");
+        const line = this.buf.subarray(0, nl);
+        this.buf = this.buf.subarray(nl + 1);
+        if (!line.length) continue;
+        let msg = JSON.parse(this.decoder.decode(line));
+        if (this.token) {
+          if (typeof msg?.body !== "string" || typeof msg?.mac !== "string" || !/^[0-9a-f]{64}$/.test(msg.mac)
+              || !timingSafeEqual(Buffer.from(msg.mac, "hex"), Buffer.from(this.mac(msg.body, "response"), "hex"))) throw new Error("authentication");
+          msg = JSON.parse(msg.body);
+        }
+        if (!msg || typeof msg !== "object" || Array.isArray(msg)) throw new Error("invalid response");
+        if (msg.event) { this.onEvent?.(msg); continue; }
+        const p = this.pending.get(msg.id);
+        if (!p) continue;
+        clearTimeout(p.timer);
+        this.pending.delete(msg.id);
+        p.resolve(msg);
       }
-      const p = this.pending.get(msg.id);
-      if (!p) continue;
-      clearTimeout(p.timer);
-      this.pending.delete(msg.id);
-      p.resolve(msg);
-    }
+      if (this.buf.length > this.maxFrame) throw new Error("frame limit");
+    } catch { this.closed("invalid, oversized or unauthenticated Live response"); }
   }
 
-  private closed(err: Error) {
+  private mac(body: string, direction: "request" | "response"): string {
+    return createHmac("sha256", Buffer.from(this.token!, "hex")).update(`aae-v1/${direction}\n${body}`, "utf8").digest("hex");
+  }
+
+  private closed(reason: string) {
+    const socket = this.socket;
+    this.socket = undefined;
+    ++this.generation; // Ignore late callbacks from a terminated connection.
+    this.buf = Buffer.alloc(0);
+    this.outbuf = Buffer.alloc(0);
+    this.token = undefined;
+    socket?.terminate();
     for (const p of this.pending.values()) {
       clearTimeout(p.timer);
-      p.reject(err);
+      p.reject(new Error(`${reason}; outcome unknown, inspect before retrying`));
     }
     this.pending.clear();
-    this.socket = undefined;
     this.onClose?.();
   }
 }

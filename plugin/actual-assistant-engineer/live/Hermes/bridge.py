@@ -1,15 +1,12 @@
 """Hermes control surface for Actual Assistant Engineer.
 
 Runs inside Live's embedded Python. Serves newline-delimited JSON over a
-Unix domain socket and executes each request's ops on Live's main thread
+private Unix socket or authenticated Windows loopback and executes ops on Live's main thread
 during the control surface update tick. Performance gestures arrive as MIDI
 on channel 16 and are executed immediately in receive_midi.
 """
 
 import importlib
-import json
-import os
-import select
 import socket
 import time
 import traceback
@@ -17,15 +14,17 @@ import traceback
 import Live
 from _Framework.ControlSurface import ControlSurface
 
-from . import ops
+from . import ops, transport
 
-SOCK_DIR = os.path.expanduser("~/Library/Application Support/ActualAssistantEngineer")
-SOCK_PATH = os.path.join(SOCK_DIR, "live.sock")
+SOCK_DIR = transport.DIRECTORY
+SOCK_PATH = transport.SOCK_PATH
 PROTOCOL = 1
 PERF_CHANNEL = 15  # MIDI channel 16, zero-based
-MAX_LINE = 64 * 1024 * 1024
+MAX_LINE = transport.MAX_FRAME
+MAX_CLIENTS = 8
+MAX_REQUESTS_PER_TICK = 8
 SOCK_BUF = 4 * 1024 * 1024
-PARTIAL_WAIT = 0.03  # max seconds per tick spent finishing a partially received request
+IDLE_TIMEOUT = 30.0
 
 
 class Client:
@@ -35,6 +34,7 @@ class Client:
         self.outbuf = b""
         self.subscribed = False
         self.first_byte = None
+        self.last_activity = time.monotonic()
 
 
 class Hermes(ControlSurface):
@@ -47,28 +47,23 @@ class Hermes(ControlSurface):
         self._ctx = ops.Context(self)
         self._open_server()
         self._ctx.attach_listeners()
-        self.log_message("Hermes: listening on %s" % SOCK_PATH)
+        self.log_message("Hermes: listening via %s" % self._listener.path)
 
     # --- socket server -------------------------------------------------
 
-    def _open_server(self):
-        os.makedirs(SOCK_DIR, mode=0o700, exist_ok=True)
-        os.chmod(SOCK_DIR, 0o700)
-        if os.path.exists(SOCK_PATH):
-            os.unlink(SOCK_PATH)
-        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        server.bind(SOCK_PATH)
-        os.chmod(SOCK_PATH, 0o600)
-        server.listen(8)
-        server.setblocking(False)
-        self._server = server
+    def _open_server(self, directory=None):
+        self._listener = transport.Listener(directory)
+        self._server = self._listener.socket
 
     def _poll(self):
-        while True:
+        for _ in range(MAX_CLIENTS):
             try:
-                conn, _ = self._server.accept()
+                conn, address = self._server.accept()
             except (BlockingIOError, InterruptedError):
                 break
+            if len(self._clients) >= MAX_CLIENTS or (transport.WINDOWS and address[0] != "127.0.0.1"):
+                conn.close()
+                continue
             conn.setblocking(False)
             # The default ~8KB buffers would spread one large batch across several 100ms ticks.
             for opt in (socket.SO_RCVBUF, socket.SO_SNDBUF):
@@ -78,22 +73,41 @@ class Hermes(ControlSurface):
                     pass
             self._clients.append(Client(conn))
         for client in list(self._clients):
+            if (not client.subscribed or client.inbuf) and time.monotonic() - client.last_activity > IDLE_TIMEOUT:
+                self._drop(client)
+                continue
             self._read(client)
-            self._flush(client)
+            if client in self._clients:
+                self._flush(client)
 
     def _read(self, client):
-        deadline = time.perf_counter() + PARTIAL_WAIT
-        while True:
+        # Bounded nonblocking work. Never wait on a network peer in Live's UI
+        # thread; fragmented large batches continue on the next display tick.
+        received = 0
+        handled = 0
+        while handled < MAX_REQUESTS_PER_TICK and client in self._clients:
+            if b"\n" in client.inbuf:
+                line, client.inbuf = client.inbuf.split(b"\n", 1)
+                if len(line) > MAX_LINE:
+                    self._drop(client)
+                    return
+                handled += 1
+                if line.strip():
+                    recv_ms = (time.perf_counter() - client.first_byte) * 1000 if client.first_byte else 0
+                    client.first_byte = time.perf_counter() if client.inbuf else None
+                    msg = self._handle(client, line)
+                    msg["recv_ms"] = round(recv_ms, 1)
+                    self._send(client, msg)
+                continue
+            if len(client.inbuf) > MAX_LINE:
+                self._drop(client)
+                return
+            if received >= SOCK_BUF:
+                return
             try:
-                chunk = client.conn.recv(1 << 20)
+                chunk = client.conn.recv(min(1 << 20, MAX_LINE + 1 - len(client.inbuf)))
             except (BlockingIOError, InterruptedError):
-                # A request is mid-flight: the sender refills its small buffer within
-                # microseconds, so wait briefly rather than a whole 100ms tick.
-                pending = client.inbuf and not client.inbuf.endswith(b"\n")
-                if pending and time.perf_counter() < deadline:
-                    select.select([client.conn], [], [], 0.002)
-                    continue
-                break
+                return
             except OSError:
                 self._drop(client)
                 return
@@ -102,26 +116,22 @@ class Hermes(ControlSurface):
                 return
             if not client.inbuf:
                 client.first_byte = time.perf_counter()
+            received += len(chunk)
+            client.last_activity = time.monotonic()
             client.inbuf += chunk
-            if len(client.inbuf) > MAX_LINE:
-                self._drop(client)
-                return
-        while b"\n" in client.inbuf:
-            line, client.inbuf = client.inbuf.split(b"\n", 1)
-            if line.strip():
-                recv_ms = (time.perf_counter() - client.first_byte) * 1000 if client.first_byte else 0
-                client.first_byte = time.perf_counter() if client.inbuf else None
-                msg = self._handle(client, line)
-                msg["recv_ms"] = round(recv_ms, 1)
-                self._send(client, msg)
 
     def _handle(self, client, line):
         t0 = time.perf_counter()
         try:
-            req = json.loads(line)
+            req = transport.decode_message(line, self._listener.token)
+        except transport.AuthenticationError:
+            return {"ok": False, "error": "authentication required"}
         except ValueError as e:
             return {"ok": False, "error": "bad json: %s" % e}
+        if not isinstance(req, dict):
+            return {"ok": False, "error": "request must be an object"}
         rid = req.get("id")
+
         if req.get("subscribe"):
             client.subscribed = True
             return {"id": rid, "ok": True, "subscribed": True}
@@ -159,7 +169,11 @@ class Hermes(ControlSurface):
         return {"ok": True, "reloaded": True}
 
     def _send(self, client, msg):
-        client.outbuf += (json.dumps(msg, separators=(",", ":"), default=str) + "\n").encode()
+        frame = transport.encode_message(msg, self._listener.token, "response")
+        if len(frame) > MAX_LINE + 1 or len(client.outbuf) + len(frame) > MAX_LINE + 1:
+            self._drop(client)
+            return
+        client.outbuf += frame
         self._flush(client)
 
     def _flush(self, client):
@@ -169,6 +183,9 @@ class Hermes(ControlSurface):
             except (BlockingIOError, InterruptedError):
                 return
             except OSError:
+                self._drop(client)
+                return
+            if n == 0:
                 self._drop(client)
                 return
             client.outbuf = client.outbuf[n:]
@@ -245,9 +262,6 @@ class Hermes(ControlSurface):
         self._ctx.detach_listeners()
         for client in list(self._clients):
             self._drop(client)
-        if self._server is not None:
-            self._server.close()
-            self._server = None
-        if os.path.exists(SOCK_PATH):
-            os.unlink(SOCK_PATH)
+        self._listener.close()
+        self._server = None
         ControlSurface.disconnect(self)

@@ -1,11 +1,19 @@
 """Client for the Hermes control surface running inside Ableton Live."""
 
+import importlib.util
 import itertools
-import json
-import os
 import socket
+import time
+from pathlib import Path
 
-SOCK_PATH = os.path.expanduser("~/Library/Application Support/ActualAssistantEngineer/live.sock")
+# Do not import the Hermes package: its __init__ requires Live's embedded API.
+_spec = importlib.util.spec_from_file_location(
+    "_aae_transport", Path(__file__).parent / "live" / "Hermes" / "transport.py"
+)
+transport = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(transport)
+SOCK_PATH = transport.SOCK_PATH
+ENDPOINT_PATH = transport.ENDPOINT_PATH
 _ids = itertools.count(1)
 
 
@@ -13,38 +21,69 @@ class LiveUnavailable(Exception):
     pass
 
 
+class LiveOutcomeUnknown(TimeoutError):
+    """A request may have executed. Never automatically retry a mutation."""
+
+
 def available():
-    return os.path.exists(SOCK_PATH)
+    """Valid private discovery exists; use ping to establish Live is responsive."""
+    try:
+        transport.read_endpoint()
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 def batch(ops, timeout=30.0, undo_step=True):
     """Run ops as one batch inside Live (one undo step) and return the response."""
-    if not available():
+    if timeout <= 0:
+        raise ValueError("timeout must be positive")
+    deadline = time.monotonic() + timeout
+    try:
+        endpoint = transport.read_endpoint()
+    except (OSError, ValueError) as e:
         raise LiveUnavailable(
-            "Ableton Live isn't connected. Ask the producer to run `hermes assistant-engineer setup` once, open Live, and choose "
+            "Ableton Live has no valid private endpoint. Run `hermes assistant-engineer setup`, open Live, and choose "
             '"Hermes" under Settings > Tempo & MIDI > Control Surface; `hermes assistant-engineer status` checks it.'
-        )
+        ) from e
     rid = next(_ids)
-    payload = (json.dumps({"id": rid, "ops": ops, "undo_step": undo_step}) + "\n").encode()
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+    request = {"id": rid, "ops": ops, "undo_step": undo_step}
+    token = endpoint.get("token")
+    payload = transport.encode_message(request, token)
+    if len(payload) - 1 > transport.MAX_FRAME:
+        raise ValueError("Live request exceeds frame limit; nothing sent")
+    with socket.socket(socket.AF_INET if transport.WINDOWS else socket.AF_UNIX, socket.SOCK_STREAM) as s:
         s.settimeout(timeout)
         try:
-            s.connect(SOCK_PATH)
+            s.connect((endpoint["host"], endpoint["port"]) if transport.WINDOWS else endpoint["path"])
         except OSError as e:
-            raise LiveUnavailable("cannot reach Live: %s" % e)
-        s.sendall(payload)
-        buf = b""
-        while True:
-            try:
-                chunk = s.recv(1 << 20)
-            except socket.timeout:
-                # The batch may still have run; callers must inspect before retrying.
-                raise TimeoutError("Live did not answer within %ss; outcome unknown, inspect before retrying" % timeout)
-            if not chunk:
-                raise LiveUnavailable("Live closed the connection")
-            buf += chunk
-            while b"\n" in buf:
-                line, buf = buf.split(b"\n", 1)
-                msg = json.loads(line)
-                if msg.get("id") == rid:
-                    return msg
+            raise LiveUnavailable("cannot reach Live: %s" % e) from e
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise LiveUnavailable("Live connection deadline expired; nothing sent")
+        try:
+            s.settimeout(remaining)
+            s.sendall(payload)
+            buf = b""
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("Live request deadline expired")
+                s.settimeout(remaining)
+                chunk = s.recv(min(1 << 20, transport.MAX_FRAME + 1 - len(buf)))
+                if not chunk:
+                    raise ConnectionError("Live closed the connection")
+                buf += chunk
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    if len(line) > transport.MAX_FRAME:
+                        raise ValueError("Live response exceeds frame limit")
+                    msg = transport.decode_message(line, token, "response")
+                    if msg.get("id") == rid:
+                        return msg
+                if len(buf) > transport.MAX_FRAME:
+                    raise ValueError("Live response exceeds frame limit")
+        except (OSError, ValueError) as e:
+            # sendall can fail AFTER a partial or complete write. EOF, invalid
+            # replies and receive timeouts are likewise not safe-to-retry failures.
+            raise LiveOutcomeUnknown("Live request failed; outcome unknown, inspect before retrying") from e
