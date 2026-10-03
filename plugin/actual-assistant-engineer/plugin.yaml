@@ -4,6 +4,7 @@ description: Operate Ableton Live as an assistant engineer — inspect Sets, loa
 author: Actual Computer
 platforms: [macos]
 provides_tools:
+  - live_set
   - live_inspect
   - live_ops
   - live_browse

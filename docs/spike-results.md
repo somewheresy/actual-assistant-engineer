@@ -87,3 +87,23 @@ Profile of run 3: 13 model calls = 105 s, 18k output tokens; all Live tool calls
 - Delegation to 4 parallel subagents is enabled (`delegation.max_concurrent_children: 4`, `oneshot_max_children: 4`); run 4 hit the one-shot default cap of 2 and wrote the parts itself, so parallel part-writing is still untested.
 
 Remaining speed work: parallel subagents per part, and smaller read-backs (one tool result added ~12k tokens of context late in run 4).
+
+## (g) Full-feature runs: arrangement, FX, automation, sidechain, completeness gate
+
+Same plugin and harness (`spike/run-song.ts`); the model is whatever the parent Hermes is configured with. Each run starts from Live's default Set, is gated by `review` (arrangement, named locators, automation, sidechain, mix), and is saved with a screenshot and report under `~/Documents/Ableton Live Projects/Hermes Demos/runs/`.
+
+| Run | Model | Wall time | Gate | Length | Tracks / effects | Notes / pitches | Automation / sidechains / sends |
+|---|---|---|---|---|---|---|---|
+| Prog House Full 1 | GLM-5.3 | 1m 59s | (pre-gate) | 136 bars, 4:23 | 9 / 16 | 541 / 27 | 9 / 1 / 6 |
+| Prog House Full 3 | GLM-5.3 | 1m 14s | passed, 1 round | 104 bars, 3:21 | 6 / 9 | 346 / 19 | 6 / 4 / 3 |
+| Prog House Opus 1 | Claude Opus 5.5 | 3m 25s | passed, 1 round | 120 bars, 3:52 | 6 / 11 | 742 / 36 | 19 / 4 / 7 |
+| Prog House GLM QA 1 (+2 QA passes) | GLM-5.3 | 3m 26s | passed every pass | 88 bars, 2:50 | 6 / 12 | 696 / 38 | 6 / 4 / 0 |
+| Future Beat Opus 1 ("Make a future beat.") | Claude Opus 5.5 | 1m 22s | passed, 1 round | 68 bars, 1:49 | 4 / 6 | 370 / 28 | 4 / 3 / 3 |
+
+Findings:
+- Time in Live stays at 2-8 s per run; model output dominates. GLM-5.3 on the Actual cluster is fastest; Opus 5.5 writes denser parts and more automation, and was the only model to flag a mix issue unprompted (sidechain keyed from the whole drum bus).
+- The completeness gate catches what self-reports miss (run 2 reported a song with nothing in the Arrangement). Resume-with-gaps plus a stall watchdog recovers from interruptions.
+- GLM QA passes were shallow (small note/automation gains, one pass only relabelled sections). Repeat detection must compare note content, not clip names.
+- Live only creates clip envelopes on session clips; arrangement copies keep them.
+- Bugs found by the integration suite and fixed: deleted-device access, last automation step not held, partial arrangement copies running long, locators landing a tick late, Glue Compressor lacking input routing.
+- Set file management must never use keystrokes: an early `live_set` test typed into the focused app. It now uses only menu items, dialog buttons, file copies, and `open`.

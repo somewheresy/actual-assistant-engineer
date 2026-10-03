@@ -4,7 +4,7 @@ import json
 import platform
 from pathlib import Path
 
-from . import live_client
+from . import live_client, live_sets
 
 TOOLSET = "actual_assistant_engineer"
 
@@ -98,6 +98,26 @@ def live_review(args, **_):
 def live_analyze(args, **_):
     res = _call([{"op": "analyze", "ignore_tracks": args.get("ignore_tracks", [])}], timeout=60.0)
     return _result(res["results"][0] if res.get("ok") else res)
+
+
+def live_set(args, **_):
+    action = args.get("action")
+    try:
+        if action == "info":
+            out = live_sets.info()
+        elif action == "new":
+            out = live_sets.new(args.get("on_unsaved", "cancel"))
+        elif action == "open":
+            out = live_sets.open_set(args["path"], args.get("on_unsaved", "cancel"))
+        elif action == "save":
+            out = live_sets.save()
+        elif action == "save_as":
+            out = live_sets.save_as(args["name"], args.get("directory"))
+        else:
+            return _result({"ok": False, "error": "action must be info, new, open, save, or save_as"})
+    except (live_sets.SetError, KeyError) as e:
+        return _result({"ok": False, "error": str(e)})
+    return _result(dict(out, ok=True))
 
 
 def live_browse(args, **_):
@@ -194,7 +214,23 @@ SCHEMAS["live_analyze"] = {
     "parameters": {"type": "object", "properties": {"ignore_tracks": {"type": "array", "items": {"type": "string"}, "description": "track names to leave out (e.g. untouched template tracks)"}}},
 }
 
-HANDLERS = {"live_inspect": live_inspect, "live_ops": live_ops, "live_browse": live_browse, "live_review": live_review, "live_analyze": live_analyze}
+SCHEMAS["live_set"] = {
+    "name": "live_set",
+    "description": "Manage Live Set files. info: the open Set's name and path. new: start a new Set (Live's default template). open: open a .als file. save: save the open Set. save_as: save under a new name into <directory>/<name> Project/ (default directory ~/Documents/Ableton Live Projects/Hermes). new/open replace the open Set: if it has unsaved changes Live asks first, and you must pass on_unsaved — \"save\" (keep the producer's work; preferred), \"discard\" (only when the producer said so), or \"cancel\" (default: stops and reports). After new/open the Live tools work on the new Set.",
+    "parameters": {
+        "type": "object",
+        "required": ["action"],
+        "properties": {
+            "action": {"type": "string", "enum": ["info", "new", "open", "save", "save_as"]},
+            "path": {"type": "string", "description": "open: path to the .als"},
+            "name": {"type": "string", "description": "save_as: Set name"},
+            "directory": {"type": "string", "description": "save_as: folder for the Project (default ~/Documents/Ableton Live Projects/Hermes)"},
+            "on_unsaved": {"type": "string", "enum": ["save", "discard", "cancel"]},
+        },
+    },
+}
+
+HANDLERS = {"live_set": live_set, "live_inspect": live_inspect, "live_ops": live_ops, "live_browse": live_browse, "live_review": live_review, "live_analyze": live_analyze}
 
 
 def register(ctx):
