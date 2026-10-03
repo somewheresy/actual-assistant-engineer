@@ -126,7 +126,11 @@ class Hermes(ControlSurface):
             client.subscribed = True
             return {"id": rid, "ok": True, "subscribed": True}
         if req.get("reload"):
-            return dict(self._reload(), id=rid)
+            try:
+                return dict(self._reload(), id=rid)
+            except Exception as e:
+                self.log_message("Hermes reload failed: %s" % traceback.format_exc())
+                return {"id": rid, "ok": False, "error": "reload failed: %s: %s" % (type(e).__name__, e)}
         try:
             results, ok = self._ctx.run_batch(req.get("ops", []), req.get("undo_step", True))
         except Exception as e:
@@ -142,11 +146,12 @@ class Hermes(ControlSurface):
 
     def _reload(self):
         """Development: reload ops and bridge code in place, keeping the socket and clients."""
-        from . import bridge
+        import sys
 
         self._ctx.detach_listeners()
-        importlib.reload(ops)
-        module = importlib.reload(bridge)
+        package = importlib.reload(sys.modules[__package__])
+        package.load_ops()
+        module = importlib.reload(sys.modules[__package__ + ".bridge"])
         self.__class__ = module.Hermes
         self._ctx = module.ops.Context(self)
         self._ctx.attach_listeners()

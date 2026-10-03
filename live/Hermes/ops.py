@@ -547,6 +547,137 @@ def _set_clip(ctx, track, slot, expect=None, name=None, color=None, looping=None
     return _clip_summary(clip)
 
 
+# --- arrangement ---------------------------------------------------------------
+
+
+def _arr_clip_summary(i, c):
+    return {"index": i, "name": c.name, "start": c.start_time, "end": c.end_time, "midi": c.is_midi_clip}
+
+
+@op("arrangement")
+def _arrangement(ctx, tracks=None):
+    """Arrangement timeline: clips per track (beats) and locators."""
+    song = ctx.song
+    idx = range(len(song.tracks)) if tracks is None else [list(song.tracks).index(ctx.track(t)) for t in tracks]
+    return {
+        "length": song.song_length if hasattr(song, "song_length") else None,
+        "locators": [{"name": c.name, "time": c.time} for c in song.cue_points],
+        "tracks": [
+            {"index": i, "name": song.tracks[i].name, "clips": [_arr_clip_summary(j, c) for j, c in enumerate(song.tracks[i].arrangement_clips)]}
+            for i in idx
+        ],
+    }
+
+
+@op("arrangement_clip")
+def _arrangement_clip(ctx, track, start, length, name=None, color=None, notes=(), patterns=None, step=0.25, velocity=100, accent=120, expect=None):
+    """Write a new MIDI clip directly onto the arrangement timeline."""
+    t = ctx.track(track, expect)
+    clip = t.create_midi_clip(float(start), float(length))
+    if name is not None:
+        clip.name = name
+    if color is not None:
+        clip.color = int(color.lstrip("#"), 16) if isinstance(color, str) else int(color)
+    all_notes = list(notes) + (_pattern_notes(patterns, float(step), velocity, accent) if patterns else [])
+    if all_notes:
+        clip.add_new_notes(tuple(_note_spec(n) for n in all_notes))
+    return {"start": clip.start_time, "end": clip.end_time, "notes": len(all_notes)}
+
+
+def _place(track, clip, start, bars_beats):
+    """Copy a session clip onto the timeline, repeating it to fill the span."""
+    placed, t = 0, float(start)
+    end = float(start) + float(bars_beats)
+    step = clip.length
+    while t < end - 1e-6:
+        track.duplicate_clip_to_arrangement(clip, t)
+        placed += 1
+        t += step
+    if placed and t > end + 1e-6:
+        # The last copy runs past the span: trim it to end exactly at the boundary.
+        last = max(track.arrangement_clips, key=lambda c: c.start_time if abs(c.start_time - (t - step)) < 1e-6 else -1)
+        last.loop_end = last.loop_start + (end - (t - step))
+    return placed
+
+
+@op("place_clip")
+def _place_clip(ctx, track, slot, start, length=None, expect=None):
+    """Copy a session clip into the arrangement at `start`, repeated to fill `length` beats."""
+    t = ctx.track(track, expect)
+    clip = ctx.clip(track, slot, expect)
+    return {"placed": _place(t, clip, start, length or clip.length)}
+
+
+@op("arrange_scenes")
+def _arrange_scenes(ctx, sections, locators=True):
+    """Lay session scenes out on the timeline: sections = [{scene, bars}] in play order.
+    Every track's clip in that scene row is repeated to fill the section; empty slots stay silent."""
+    song = ctx.song
+    t, out = 0.0, []
+    for sec in sections:
+        scene = ctx.scene(sec["scene"])
+        row = list(song.scenes).index(scene)
+        beats = float(sec["bars"]) * song.signature_numerator
+        placed = 0
+        for track in song.tracks:
+            slots = list(track.clip_slots)
+            if row < len(slots) and slots[row].has_clip:
+                placed += _place(track, slots[row].clip, t, beats)
+        if locators:
+            song.current_song_time = t
+            if not any(abs(c.time - t) < 1e-6 for c in song.cue_points):
+                song.set_or_delete_cue()
+            for c in song.cue_points:
+                if abs(c.time - t) < 1e-6:
+                    c.name = sec.get("name", scene.name)
+        out.append({"scene": scene.name, "start": t, "beats": beats, "clips": placed})
+        t += beats
+    song.current_song_time = 0.0
+    return {"sections": out, "end": t}
+
+
+@op("clear_arrangement")
+def _clear_arrangement(ctx, track=None, start=0.0, end=None, expect=None):
+    """Delete arrangement clips that start within [start, end) on one track or all tracks."""
+    song = ctx.song
+    tracks = [ctx.track(track, expect)] if track is not None else list(song.tracks)
+    n = 0
+    for tr in tracks:
+        for c in list(tr.arrangement_clips):
+            if c.start_time >= float(start) and (end is None or c.start_time < float(end)):
+                tr.delete_clip(c)
+                n += 1
+    return {"deleted": n}
+
+
+@op("locator")
+def _locator(ctx, time, name):
+    song = ctx.song
+    song.current_song_time = float(time)
+    if not any(abs(c.time - float(time)) < 1e-6 for c in song.cue_points):
+        song.set_or_delete_cue()
+    for c in song.cue_points:
+        if abs(c.time - float(time)) < 1e-6:
+            c.name = name
+    return {"time": float(time), "name": name}
+
+
+@op("show_view")
+def _show_view(ctx, view):
+    """Bring Live's Arranger or Session view to the front."""
+    if view not in ("Arranger", "Session"):
+        raise OpError("view must be Arranger or Session")
+    ctx.app.view.show_view(view)
+    return {}
+
+
+@op("back_to_arranger")
+def _back_to_arranger(ctx):
+    """Make the arrangement play again after session clips took over."""
+    ctx.song.back_to_arranger = False
+    return {}
+
+
 # --- devices & parameters ----------------------------------------------------
 
 
