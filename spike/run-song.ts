@@ -7,6 +7,7 @@ import { parseArgs } from "node:util";
 import { defaultSet } from "../src/live/app";
 import { LiveClient } from "../src/live/client";
 import { measure } from "../src/song/measure";
+import { parentModel } from "../src/song/models";
 import { openSet, saveSetAs, screenshotLive } from "./open-set";
 
 const { values: args } = parseArgs({
@@ -23,9 +24,17 @@ const { values: args } = parseArgs({
     budget: { type: "string", default: "1800" },
     provider: { type: "string" },
     improve: { type: "string", default: "0" },
+    "allow-local": { type: "boolean", default: false },
     model: { type: "string" },
   },
 });
+
+// Whole-song builds need a frontier model; local models are for iterative requests.
+const parent = await parentModel(args.home!, args.provider);
+if (parent.local && !args["allow-local"] && !args.model) {
+  console.error(`refusing a full-song run on a locally hosted model (${parent.provider} ${parent.model ?? ""} at ${parent.baseUrl ?? "local runtime"}); use a frontier model, or pass --allow-local to override`);
+  process.exit(2);
+}
 
 const runDir = `${homedir()}/Documents/Ableton Live Projects/Hermes Demos/runs/${args.label!.replace(/[^\w .-]+/g, "")}`;
 mkdirSync(runDir, { recursive: true });

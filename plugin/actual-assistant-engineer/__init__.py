@@ -4,7 +4,7 @@ import json
 import platform
 from pathlib import Path
 
-from . import cli, live_arrangement, live_client, live_sets, live_vst
+from . import cli, compact, live_arrangement, live_client, live_sets, live_vst, models
 
 TOOLSET = "actual_assistant_engineer"
 
@@ -20,7 +20,7 @@ OPS_DOC = """Ops (all positions in beats; 1 bar of 4/4 = 4 beats; pitches are MI
 - create_clip {track, slot, length (beats), name?, color?, replace?: false, expect?}
 - add_notes {track, slot, notes?: [[pitch, start, duration, velocity], ...], patterns?: {"<pitch>": "x.X-..."}, step?: 0.25, velocity?: 100, accent?: 120, expect?}
     patterns write rhythmic parts compactly, one character per step from beat 0: x hit, X accented hit, - hold the previous note one more step, . rest. step is in beats (0.25 = 16ths, 0.5 = 8ths). notes and patterns can be combined.
-- get_notes {track, slot} / clear_notes {track, slot} / delete_clip {track, slot}
+- get_notes {track, slot} -> notes as [pitch, start, duration, velocity] rows / clear_notes {track, slot} / delete_clip {track, slot}
 - set_clip {track, slot, name?, color?, looping?, loop_start?, loop_end?}
 - clip_envelope {track, slot, target: "volume"|"pan"|"<device>:<param>", times: [beats]} -> sampled values
 - device_params {track, device} -> parameter names, values, ranges
@@ -52,7 +52,7 @@ Pass expect: "<current name>" on edits to existing user tracks so a stale index 
 
 
 def _result(obj):
-    return json.dumps(obj, separators=(",", ":"), default=str)
+    return json.dumps(compact.compact(obj), separators=(",", ":"), default=str)
 
 
 def _call(ops, timeout=30.0):
@@ -67,15 +67,17 @@ def live_inspect(args, **_):
     res = _call([{"op": "info"}, {"op": "overview", "clips": args.get("clips", True)}])
     if not res.get("ok"):
         return _result(res)
-    info, overview = res["results"][0], res["results"][1]
-    out = {"live": info, "set": overview}
+    info, ov = res["results"][0], res["results"][1]
+    out = {"live": info, "set": ov} if args.get("detail") == "full" else compact.overview(info, ov)
     if track is not None:
-        devices = []
-        target = next((t for t in overview["tracks"] if t["index"] == track or t["name"] == track), None)
-        for i, _d in enumerate(target["devices"] if target else []):
-            r = _call([{"op": "device_params", "track": track, "device": i}])
-            devices.append(r["results"][0] if r.get("ok") else {"error": r.get("error") or r["results"][0].get("error")})
-        out["track_devices"] = devices
+        target = next((t for t in ov["tracks"] if t["index"] == track or t["name"] == track), None)
+        count = len(target["devices"]) if target else 0
+        # All devices in one round trip.
+        r = _call([{"op": "device_params", "track": track, "device": i} for i in range(count)]) if count else {"results": []}
+        out["track_devices"] = [
+            compact.device_params(d, args.get("params_query"), args.get("params_limit", 40), args.get("ranges", False)) if d.get("ok", True) and "params" in d else {"error": d.get("error")}
+            for d in r.get("results", [])
+        ]
     return _result(out)
 
 
@@ -131,8 +133,10 @@ def live_arrangement_automation(args, **_):
             out = live_arrangement.write(track, target, args.get("points") or [], args.get("path"))
         elif action == "delete":
             out = live_arrangement.delete(track, target, args.get("path"))
+        elif action == "apply":
+            out = live_arrangement.apply(args.get("lanes") or [], args.get("path"))
         else:
-            return _result({"ok": False, "error": "action must be list, read, write, or delete"})
+            return _result({"ok": False, "error": "action must be list, read, write, delete, or apply"})
     except (live_arrangement.AutomationError, live_sets.SetError, ValueError, KeyError) as e:
         return _result({"ok": False, "error": str(e)})
     return _result(dict(out, ok=True))
@@ -193,12 +197,16 @@ ROOTS = ["instruments", "audio_effects", "midi_effects", "drums", "sounds", "plu
 SCHEMAS = {
     "live_inspect": {
         "name": "live_inspect",
-        "description": "Read the open Ableton Live Set: Live version, tempo, tracks (devices, mixer, clips per slot), returns, and scenes. Pass `track` to also get every device's parameters on that track. Call this before editing and after edits to verify.",
+        "description": "Read the open Ableton Live Set: one line per track (index, name, level, device chain, clips by slot), returns, scenes, tempo. Pass `track` to also get its devices' parameters as name -> display value (filter with params_query; ranges for raw values and choices). Call this before editing and after edits to verify.",
         "parameters": {
             "type": "object",
             "properties": {
                 "track": {"description": "Track index or name to detail devices/parameters for", "type": ["integer", "string"]},
                 "clips": {"type": "boolean", "description": "Include clip summaries (default true)"},
+                "detail": {"type": "string", "enum": ["summary", "full"], "description": "summary (default): one line per track; full: every field"},
+                "params_query": {"type": "string", "description": "with track: only parameters whose names contain these words"},
+                "params_limit": {"type": "integer", "description": "with track: parameters per device (default 40)"},
+                "ranges": {"type": "boolean", "description": "with track: include raw value, min, max, and choices for each parameter"},
             },
         },
     },
@@ -274,12 +282,13 @@ SCHEMAS["live_set"] = {
 
 SCHEMAS["live_arrangement_automation"] = {
     "name": "live_arrangement_automation",
-    "description": "Arrangement (track-lane) automation, which Live's API can't reach directly: list, read, write (create or replace), or delete the envelope for one parameter on the timeline. target: \"volume\" | \"pan\" | \"send:A\" | \"<device index or name>:<parameter>\" (e.g. \"Auto Filter:Frequency\", \"0:Macro 1\"). points: [[beat, value], ...] with raw numbers or display values (\"200 Hz\", \"-6 dB\"). Each write/delete saves the Set, edits its file, and reopens it (a few seconds), so batch your automation thinking and write each lane once. Requires a Set opened or created with live_set. For clip envelopes use live_ops automate instead.",
+    "description": "Arrangement (track-lane) automation, which Live's API can't reach directly: list, read, write (create or replace), or delete the envelope for one parameter on the timeline. target: \"volume\" | \"pan\" | \"send:A\" | \"<device index or name>:<parameter>\" (e.g. \"Auto Filter:Frequency\", \"0:Macro 1\"). points: [[beat, value], ...] with raw numbers or display values (\"200 Hz\", \"-6 dB\"). Each write/delete saves the Set, edits its file, and reopens it (a few seconds): use action apply with lanes: [{track, target, points} or {track, target, delete: true}] to change many lanes in ONE cycle. Requires a Set opened or created with live_set. For clip envelopes use live_ops automate instead.",
     "parameters": {
         "type": "object",
-        "required": ["action", "track"],
+        "required": ["action"],
         "properties": {
-            "action": {"type": "string", "enum": ["list", "read", "write", "delete"]},
+            "action": {"type": "string", "enum": ["list", "read", "write", "delete", "apply"]},
+            "lanes": {"type": "array", "items": {"type": "object"}, "description": "apply: [{track, target, points} | {track, target, delete: true}]"},
             "track": {"type": "string"},
             "target": {"type": "string"},
             "points": {"type": "array", "items": {"type": "array"}},
@@ -320,6 +329,7 @@ def register(ctx):
             check_fn=live_client.available,
             emoji="🎛️",
         )
+    ctx.register_system_prompt_section("actual-assistant-engineer.local-model", models.steering_section, max_chars=1200)
     ctx.register_cli_command("aae", "Actual Assistant Engineer: setup, status, review gate", cli.configure, cli.handle,
                              description="Install the Live control surface, check the connection, and gate /goal on track completeness.")
     skills = Path(__file__).parent / "skills"

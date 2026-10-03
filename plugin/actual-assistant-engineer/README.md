@@ -47,6 +47,8 @@ To keep Hermes working until the track is finished, use a goal with the complete
 
 The plugin works with any tool-calling model Hermes runs, and it works best with frontier intelligence: composing, arranging, and mixing a whole track takes dozens of tool calls and real musical judgement, which frontier models handle in one to three minutes. Locally hosted models are still useful, especially for routine work inside a DAW: cleanup, labeling and coloring tracks and clips, gain staging, and fixing production errors and artifacts (stray or overlapping notes, clipping levels, disabled or misrouted devices, sends left open). Those tasks take a handful of tool calls, so a model running on your own machine handles them well and keeps your session fully local.
 
+Locally hosted models are for iterative requests, not whole-song building. When Hermes runs a local model (a local runtime such as Ollama, llama.cpp, LM Studio, or vLLM, or any endpoint on this machine), the plugin tells it to take on scoped requests in the existing Set and to decline from-scratch song builds, pointing the producer to a frontier model (`/model`). The measured-run harness likewise refuses full-song runs on a local model unless `--allow-local` is passed.
+
 ## Tools
 
 | Tool | What it does |

@@ -33,7 +33,7 @@ for (const part of fixtureSong.parts) {
     if (!have) { problems.push(`${part.track}/${section.name}: missing clip`); continue; }
     clips++;
     check(have.length === section.bars * 4, `${part.track}/${section.name}: length ${have.length}`);
-    const got = await live.run<{ ok: boolean; notes: Note[] }>({ op: "get_notes", track: track.index, slot: si });
+    const got = await live.run<{ ok: boolean; notes: Note[] }>({ op: "get_notes", track: track.index, slot: si, format: "objects" });
     const a = got.notes.map(key).sort(), b = want.notes.map(key).sort();
     notes += a.length;
     check(JSON.stringify(a) === JSON.stringify(b), `${part.track}/${section.name}: notes differ (${a.length} vs ${b.length})`);

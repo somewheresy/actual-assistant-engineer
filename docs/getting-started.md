@@ -26,7 +26,7 @@ hermes plugins install https://github.com/actual-computer/actual-assistant-engin
 hermes aae setup
 ```
 
-This puts the **Hermes** control surface into Live's User Library (`~/Music/Ableton/User Library/Remote Scripts/Hermes`) and builds the optional helpers if Xcode tools are installed.
+This puts the **Hermes** control surface into Live's User Library (`~/Music/Ableton/User Library/Remote Scripts/Hermes`) and builds the optional helpers if Xcode tools are installed. Add `--index-plugins` to read every installed VST3's parameters now, so plug-in work in a session starts instantly.
 
 Then, once:
 
@@ -55,7 +55,7 @@ delegation:
   oneshot_max_children: 4
 ```
 
-Which model? Frontier models give the best results for writing and arranging whole tracks, and a fast one (100+ tokens a second) builds a full track in one to three minutes. A locally hosted model works well for routine DAW work, such as cleanup, labeling, gain staging, and fixing production errors and artifacts, and keeps everything on your machine.
+Which model? Frontier models give the best results for writing and arranging whole tracks, and a fast one (100+ tokens a second) builds a full track in one to three minutes. A locally hosted model is for iterative requests in an existing Set, such as cleanup, labeling, gain staging, and fixing production errors and artifacts, and keeps everything on your machine. It won't build whole songs: on a local model, Hermes takes scoped requests and points you to a frontier model for from-scratch builds.
 
 ## 5. Make your first track
 

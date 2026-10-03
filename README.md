@@ -12,6 +12,7 @@ Everything ships in one plugin folder, [`plugin/actual-assistant-engineer`](plug
 hermes plugins install actual-assistant-engineer     # from the catalog; accept the pedalboard dependency
 # or: hermes plugins install https://github.com/actual-computer/actual-assistant-engineer#plugin/actual-assistant-engineer
 hermes aae setup                                    # installs the Live control surface; builds helpers if swiftc exists
+                                                    # add --index-plugins to cache every VST3's parameters up front
 ```
 
 Then, once, in Live: **Settings → Tempo & MIDI → Control Surface → Hermes**. `hermes aae status` checks Live, the control surface, the bridge, the helpers, and the VST host.
@@ -50,6 +51,8 @@ To keep it working until the track is finished, use a Hermes goal with the compl
 
 The plugin works with any tool-calling model Hermes runs, and it works best with frontier intelligence: composing, arranging, and mixing a whole track takes dozens of tool calls and real musical judgement, which frontier models handle in one to three minutes. Locally hosted models are still useful, especially for routine work inside a DAW: cleanup, labeling and coloring tracks and clips, gain staging, and fixing production errors and artifacts (stray or overlapping notes, clipping levels, disabled or misrouted devices, sends left open). Those tasks take a handful of tool calls, so a model running on your own machine handles them well and keeps your session fully local.
 
+Locally hosted models are for iterative requests, not whole-song building. When Hermes runs a local model (a local runtime such as Ollama, llama.cpp, LM Studio, or vLLM, or any endpoint on this machine), the plugin tells it to take on scoped requests in the existing Set and to decline from-scratch song builds, pointing the producer to a frontier model (`/model`). The measured-run harness likewise refuses full-song runs on a local model unless `--allow-local` is passed.
+
 ### Tools
 
 | Tool | What it does |
@@ -59,7 +62,7 @@ The plugin works with any tool-calling model Hermes runs, and it works best with
 | `live_ops` | Batched edits, one undo step each: tracks, scenes, clips and notes (arrays or step patterns), declarative device graphs (`build_device`: any instrument/effect/rack structure, nested chains, drum pads, macros; `device_tree`, `configure` at any depth), parameters in display units (`"1.2 kHz"`, `"-6 dB"`, `"4:1"`), routing, sidechain, exact-dB mixer, clip automation, arrangement and locators, plus generic `get`/`set`/`call`/`describe` on anything in Live's object model |
 | `live_browse` | Find instruments, effects, kits, presets, samples, plug-ins |
 | `live_vst` | Inside VST3 plug-ins: every parameter by name, preset files on disk, programs, expose up to 128 parameters to Live, load `.vstpreset` files or parameter values as state |
-| `live_arrangement_automation` | Arrangement-lane automation, which Live's API can't reach: list, read, write, delete through the Set file |
+| `live_arrangement_automation` | Arrangement-lane automation, which Live's API can't reach: list, read, write, delete, or `apply` many lanes in one save/reopen cycle |
 | `live_review` | Completeness check: concrete gaps until the track is finished |
 | `live_analyze` | Section-by-section QA: energy curve, content repeats, register clashes, levels |
 

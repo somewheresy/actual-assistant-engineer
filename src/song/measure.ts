@@ -45,7 +45,7 @@ export async function measure(live: LiveClient, skipTracks: Set<string> = new Se
   for (let i = 0; i < reads.length; i += 200) {
     const res = await live.batch(reads.slice(i, i + 200), { undoStep: false, timeoutMs: 60_000 });
     for (const r of res.results as Record<string, any>[]) {
-      if (Array.isArray(r.notes)) for (const n of r.notes) (notes++, pitches.add(n.pitch));
+      if (Array.isArray(r.notes)) for (const n of r.notes as number[][]) (notes++, pitches.add(n[0]!));
       if (Array.isArray(r.values?.sends)) sends += r.values.sends.filter((s: { value?: number }) => (s.value ?? 0) > 0.001).length;
     }
   }

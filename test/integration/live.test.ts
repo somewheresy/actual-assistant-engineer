@@ -76,7 +76,7 @@ describe.skipIf(!existsSync(SOCK_PATH))("Hermes bridge against Live", () => {
       { op: "add_notes", track: M, slot: 0, notes: [[60, 0, 1, 90]], patterns: { "36": "x...X...", "45": "x--." } },
       { op: "set_clip", track: M, slot: 0, loop_end: 2 },
     ]);
-    const notes = (await run({ op: "get_notes", track: M, slot: 0 })).notes.map((n: any) => [n.pitch, n.start, n.duration, n.velocity]).sort();
+    const notes = (await run({ op: "get_notes", track: M, slot: 0 })).notes.map((n: number[]) => n.slice(0, 4)).sort();
     expect(notes).toEqual([[36, 0, 0.25, 100], [36, 1, 0.25, 120], [45, 0, 0.75, 100], [60, 0, 1, 90]].sort());
     expect((await track(M)).clips["0"].name).toBe("IT clip");
     await run({ op: "clear_notes", track: M, slot: 0 });

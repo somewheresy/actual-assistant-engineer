@@ -52,7 +52,25 @@ def setup(args):
     except FileNotFoundError as e:
         print("Live: not found (%s)" % e)
     print("bridge: %s" % ("connected" if _bridge_ok() else "not connected yet. Restart Live, then " + SELECT_HINT[3:]))
+    if args.index_plugins:
+        index_plugins()
     return 0
+
+
+def index_plugins():
+    """Cache every installed VST3's parameter list now, so lookups in a session are instant."""
+    from . import live_vst
+
+    plugins = live_vst.catalog()
+    ok = 0
+    for i, p in enumerate(plugins, 1):
+        try:
+            live_vst.params(p["name"], limit=0)
+            ok += 1
+            print("[%d/%d] %s" % (i, len(plugins), p["name"]))
+        except Exception as e:
+            print("[%d/%d] %s: skipped (%s)" % (i, len(plugins), p["name"], str(e)[:120]))
+    print("indexed %d of %d plug-ins" % (ok, len(plugins)))
 
 
 def build_native():
@@ -128,6 +146,7 @@ def configure(parser):
     s = sub.add_parser("setup", help="install the Live control surface and build optional helpers")
     s.add_argument("--remote-scripts", help="Live's Remote Scripts folder (default: User Library)")
     s.add_argument("--no-native", action="store_true", help="skip building the Swift helpers")
+    s.add_argument("--index-plugins", action="store_true", help="cache every installed VST3's parameters now (takes a few seconds per plug-in)")
     s.set_defaults(aae_func=setup)
     st = sub.add_parser("status", help="show what's installed and whether Live is connected")
     st.set_defaults(aae_func=status)

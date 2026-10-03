@@ -288,6 +288,10 @@ def _param(p):
     }
     if p.is_quantized:
         out["items"] = list(p.value_items)
+    try:
+        out["display"] = p.str_for_value(p.value)
+    except Exception:
+        pass
     return out
 
 
@@ -325,6 +329,7 @@ def _track_summary(t, i, slots):
         "mute": t.mute,
         "solo": t.solo,
         "volume": t.mixer_device.volume.value,
+        "level": t.mixer_device.volume.str_for_value(t.mixer_device.volume.value),
         "pan": t.mixer_device.panning.value,
         # type: Live's DeviceType (1 instrument, 2 audio effect, 4 MIDI effect).
         "devices": [{"name": d.name, "class": d.class_name, "type": int(d.type)} for d in t.devices],
@@ -568,10 +573,19 @@ def _add_notes(ctx, track, slot, notes=(), patterns=None, step=0.25, velocity=10
     return {"added": len(specs), "total": len(clip.get_notes_extended(0, 128, 0.0, clip.length))}
 
 
+def _note_row(n):
+    """Compact note: [pitch, start, duration, velocity] (+1 when muted); ~4x smaller than objects."""
+    row = [n.pitch, round(n.start_time, 4), round(n.duration, 4), round(n.velocity, 1)]
+    return row + [1] if n.mute else row
+
+
 @op("get_notes")
-def _get_notes(ctx, track, slot, expect=None):
+def _get_notes(ctx, track, slot, expect=None, format="compact"):
     clip = ctx.clip(track, slot, expect)
-    return {"length": clip.length, "notes": [_note(n) for n in clip.get_notes_extended(0, 128, 0.0, clip.length)]}
+    notes = clip.get_notes_extended(0, 128, 0.0, clip.length)
+    if format == "objects":
+        return {"length": clip.length, "notes": [_note(n) for n in notes]}
+    return {"length": clip.length, "fields": ["pitch", "start", "duration", "velocity"], "notes": [_note_row(n) for n in notes]}
 
 
 @op("clear_notes")

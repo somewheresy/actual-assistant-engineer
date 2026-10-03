@@ -55,22 +55,43 @@ def _set_path(path=None):
     return p
 
 
-def write(track, target, points, path=None):
-    info = _bridge({"op": "param_info", "track": track, "target": target, "values": [v for _, v in points]})
+def apply(lanes, path=None):
+    """Write and delete many arrangement lanes with ONE save/edit/reopen cycle.
+    lanes: [{"track", "target", "points": [[beat, value], ...]} or {"track", "target", "delete": true}]"""
+    if not lanes:
+        raise AutomationError("no lanes given")
+    ops = [{"op": "param_info", "track": l["track"], "target": l["target"], "values": [v for _, v in l.get("points") or []]} for l in lanes]
+    res = live_client.batch(ops, timeout=60.0, undo_step=False)
+    if not res.get("ok"):
+        bad = next((r for r in res.get("results", []) if not r.get("ok")), {})
+        raise AutomationError(bad.get("error") or res.get("error") or "bridge error")
+    infos = res["results"]
     set_path = _set_path(path)
     live_sets.save()
     tree = A.load(set_path)
-    tr = A.track_named(tree, track)
-    param = A.param_element(tr, _xml_target(target, info), info.get("lom_names"))
-    mode = A.unit_mode(A.manual_value(param), info["value"], info["display_number"], info["is_volume"])
-    file_points = [(beat, _to_file(raw, disp, info, mode)) for (beat, _), raw, disp in zip(points, info["raw_values"], info["displays"])]
-    A.write(tr, param, file_points)
+    done = []
+    for lane, info in zip(lanes, infos):
+        tr = A.track_named(tree, lane["track"])
+        param = A.param_element(tr, _xml_target(lane["target"], info), info.get("lom_names"))
+        if lane.get("delete"):
+            done.append({"track": lane["track"], "target": info["name"], "deleted": A.delete(tr, param)})
+            continue
+        mode = A.unit_mode(A.manual_value(param), info["value"], info["display_number"], info["is_volume"])
+        pts = lane["points"]
+        A.write(tr, param, [(beat, _to_file(raw, disp, info, mode)) for (beat, _), raw, disp in zip(pts, info["raw_values"], info["displays"])])
+        done.append({"track": lane["track"], "target": info["name"], "points": len(pts), "units": mode, "displays": info["displays"]})
     A.save(tree, set_path)
     live_sets.open_set(set_path, "cancel")
-    after = _bridge({"op": "param_info", "track": track, "target": target})
-    if not after.get("automation_state"):
-        raise AutomationError("wrote the envelope but Live does not report %s as automated after reopening" % target)
-    return {"target": info["name"], "points": len(points), "units": mode, "displays": info["displays"], "automation_state": after["automation_state"]}
+    check = live_client.batch([{"op": "param_info", "track": l["track"], "target": l["target"]} for l in lanes], timeout=60.0, undo_step=False)
+    for d, lane, r in zip(done, lanes, check.get("results", [])):
+        d["automated"] = bool(r.get("automation_state"))
+        if lane.get("delete") == d["automated"]:
+            raise AutomationError("after reopening, %s on %s is %sautomated" % (lane["target"], lane["track"], "still " if d["automated"] else "not "))
+    return {"lanes": done}
+
+
+def write(track, target, points, path=None):
+    return apply([{"track": track, "target": target, "points": points}], path)["lanes"][0]
 
 
 def read(track, target, path=None):
@@ -86,17 +107,7 @@ def read(track, target, path=None):
 
 
 def delete(track, target, path=None):
-    info = _bridge({"op": "param_info", "track": track, "target": target})
-    set_path = _set_path(path)
-    live_sets.save()
-    tree = A.load(set_path)
-    tr = A.track_named(tree, track)
-    param = A.param_element(tr, _xml_target(target, info), info.get("lom_names"))
-    removed = A.delete(tr, param)
-    if removed:
-        A.save(tree, set_path)
-        live_sets.open_set(set_path, "cancel")
-    return {"target": info["name"], "deleted": removed}
+    return apply([{"track": track, "target": target, "delete": True}], path)["lanes"][0]
 
 
 def list_automated(track, path=None):
