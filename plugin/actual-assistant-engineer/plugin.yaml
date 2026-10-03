@@ -1,0 +1,9 @@
+name: actual-assistant-engineer
+version: 0.1.0
+description: Operate Ableton Live as an assistant engineer — inspect Sets, load instruments and VSTs, write and arrange MIDI, mix, and play.
+author: Actual Computer
+platforms: [macos]
+provides_tools:
+  - live_inspect
+  - live_ops
+  - live_browse

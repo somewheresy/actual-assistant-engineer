@@ -18,6 +18,10 @@ export async function openSet(path: string, onUnsaved: "dont-save" | "cancel" = 
   while (performance.now() - t0 < timeoutMs) {
     await Bun.sleep(250);
     const prompt = osa('tell application "System Events" to tell process "Live" to get value of static text 1 of group 1 of window 1');
+    if (prompt.startsWith("This action will stop audio")) {
+      osa('tell application "System Events" to tell process "Live" to click (first button of group 1 of window 1 whose description is "OK")');
+      continue;
+    }
     if (prompt.startsWith("Save changes")) {
       dialog = prompt;
       const button = onUnsaved === "dont-save" ? "Don" : "Cancel";

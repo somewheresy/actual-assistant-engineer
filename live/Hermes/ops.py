@@ -531,6 +531,15 @@ def _device_params(ctx, track, device, expect=None):
     return {"name": d.name, "class": d.class_name, "params": [_param(p) for p in d.parameters]}
 
 
+@op("drum_pads")
+def _drum_pads(ctx, track, device=0, expect=None):
+    """List a Drum Rack's filled pads (MIDI note -> pad name)."""
+    d = ctx.device(track, device, expect)
+    if not d.can_have_drum_pads:
+        raise OpError("%r is not a drum rack" % d.name)
+    return {"pads": [{"note": p.note, "name": p.name} for p in d.drum_pads if p.chains]}
+
+
 @op("set_param")
 def _set_param(ctx, track, device, param, value, expect=None):
     d = ctx.device(track, device, expect)

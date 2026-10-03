@@ -1,16 +1,7 @@
 // Deterministic fixture song spec for the .als round-trip probe: A minor, 100 BPM,
 // four sections across the Quick Start Song template's Drums / Bass / Keys tracks.
-export type Note = { pitch: number; start: number; duration: number; velocity?: number };
-export type Section = { name: string; bars: number; color?: number };
-// Envelope points are [beat, value]; volume values are dB.
-export type Clip = { notes: Note[]; envelopes?: { target: string; points: [number, number][] }[] };
-export type SongSpec = {
-  title: string;
-  tempo: number;
-  template: string;
-  sections: Section[];
-  parts: { track: string; color?: number; clips: Record<string, Clip> }[];
-};
+export type { Note, Section, Clip, SongSpec } from "../src/song/spec";
+import type { Note, Section, SongSpec } from "../src/song/spec";
 
 const KICK = 36, SNARE = 38, HAT = 42, OPEN_HAT = 46;
 const PROG = [57, 53, 48, 55]; // Am F C G roots (A3 F3 C3 G3)
