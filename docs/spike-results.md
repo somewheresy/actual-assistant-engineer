@@ -64,3 +64,26 @@ Findings:
 - Browser loading works for any installed VST3 by path (`plugins/VST3/<vendor>/<name>`). Only VST3 is enabled on this machine.
 - Live auto-exposes parameters only for small plug-ins; large instruments expose nothing until parameters are configured. Configured parameters persist in the Set as `PluginFloatParameter` entries (`ParameterId` = plug-in parameter index, `VisualIndex` = slot), so once a plug-in's parameter ids are known, the `.als` writer can pre-configure up to 128 of them, or map them to rack macros.
 - Plug-in preset browsers and unexposed controls need computer use. Hermes' `cua-driver` (0.21.0, bundled at `~/.hermes/tools/`) is installed but has no Accessibility/Screen Recording grant yet; that grant is a user step (`hermes computer-use permissions grant`). Its telemetry defaulted to on and has been disabled.
+
+## (f) Agentic song building through Hermes
+
+The plugin (`plugin/actual-assistant-engineer`) gives the session's model three tools — `live_inspect`, `live_ops` (batched ops, one undo step per call), `live_browse` — plus the assistant-engineer skill. All musical decisions are the model's; nothing composes deterministically.
+
+Brief (identical in every run): *"Make me a progressive house track in the Live Set that's open. Around 124 BPM, with a long build, a big emotional breakdown, and a drop. Pick the sounds, write the parts, arrange it into scenes I can launch, and give me a rough mix."* Start state: Live's factory default Set.
+
+| Run | Model | Wall time | Result |
+|---|---|---|---|
+| 1 | Qwen3.8-27B Q4 (local daemon), reasoning default | 34 min (budget hit) | tempo + 2 tracks loaded, no clips; honest status report |
+| 2 | same, reasoning none | stopped at 15 min | still browsing (11 calls) |
+| 3 | GLM-5.3 (Actual cluster relay), first tool surface | stopped at ~6 min | built tracks, then one model call spent >3.5 min writing notes; a bad `$N` ref stalled 60 s |
+| 4 | GLM-5.3, improved tools (below) | **3 min 20 s** | 6 tracks with presets + effect chains, 8 named scenes (INTRO → GROOVE → BUILD 1 → BUILD 2 → BREAKDOWN → BUILD 3 → DROP → OUTRO), 32 clips, rough mix; auditioned the drop; report verified against the Set |
+
+Profile of run 3: 13 model calls = 105 s, 18k output tokens; all Live tool calls together = 2.4 s. Live is never the bottleneck — model turns and output tokens are. Changes that produced run 4:
+- Model: GLM-5.3 on the Actual cluster (~190 tok/s; 4 concurrent requests take the same time as 1) vs local Qwen 27B (~10-20 tok/s, one request at a time).
+- Bridge answers every request (a bad reference used to raise outside the per-op handler and leave the client waiting 60 s).
+- `add_notes` step patterns (`{"36": "x...x...x...x..."}`) for rhythmic parts; compact `[pitch, start, duration, velocity]` arrays otherwise.
+- `live_browse` runs several searches per call and matches every word across the item's path (run 3 used 10 sequential browse turns, several empty).
+- Hermes config: `tool_search.enabled: off` (plugin tools were hidden behind tool_search/tool_describe), `--reasoning low`.
+- Delegation to 4 parallel subagents is enabled (`delegation.max_concurrent_children: 4`, `oneshot_max_children: 4`); run 4 hit the one-shot default cap of 2 and wrote the parts itself, so parallel part-writing is still untested.
+
+Remaining speed work: parallel subagents per part, and smaller read-backs (one tool result added ~12k tokens of context late in run 4).
