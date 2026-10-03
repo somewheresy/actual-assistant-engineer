@@ -28,6 +28,16 @@ OPS_DOC = """Ops (all positions in beats; 1 bar of 4/4 = 4 beats; pitches are MI
 - drum_pads {track, device?} -> [{note, name}] for a Drum Rack
 - browser_load {track, root, path: [names...]} loads a browser item (from live_browse) onto the track
 - select_device {track, device}
+Devices, FX, mixing (device = index or exact name; parameter values may be raw numbers or display values like "500 Hz", "-6 dB", "40 %"):
+- insert_device {track, name, index?} inserts a native Live device by name ("Compressor", "Glue Compressor", "EQ Eight", "Auto Filter", "Reverb", "Delay", "Echo", "Saturator", "Utility", "Limiter", "Chorus-Ensemble", "Phaser-Flanger", "Operator", "Wavetable", "Drift", "Drum Rack"...)
+- delete_device {track, device} / duplicate_device {track, device} / device_on {track, device, on}
+- set_params {track, device, values: {"<param name>": value, ...}} -> new values with display strings
+- sidechain {track, device, source} keys a Compressor/Glue Compressor from another track (source must produce audio; insert the compressor in an earlier live_ops call than this one)
+- set_routing {track, output?, input?, output_channel?, input_channel?} (display names, e.g. output "A-Reverb")
+- mixer {tracks: {"<track>": {volume_db?, pan?, sends?: {"A": 0-1}, mute?, solo?}}, crossfader?} sets many tracks in one op; volume_db is exact
+Automation (clip envelopes; on a session clip via slot, or an arrangement clip via arrangement = its index in `arrangement`):
+- automate {track, slot|arrangement, target, points: [[beat, value], ...], curve?: "linear"|"step", clear?} target: "volume" | "pan" | "send:A" | "<device>:<param>" e.g. "Auto Filter:Frequency" with points [[0, "200 Hz"], [32, "8 kHz"]]
+- read_automation {track, slot|arrangement, target, times} / clear_automation {track, slot|arrangement, target?} / list_automation {track, slot|arrangement}
 Arrangement (timeline, positions in beats from the song start):
 - arrangement {tracks?} -> clips per track (index, name, start, end) and locators
 - arrangement_clip {track, start, length, name?, notes?, patterns?, step?} writes a MIDI clip directly on the timeline

@@ -40,3 +40,29 @@ export async function openSet(path: string, onUnsaved: "dont-save" | "cancel" = 
   }
   throw new Error(`timed out opening ${path}`);
 }
+
+/** Save the open Set into `<dir>/<name> Project/<name>.als` via Save As (Live requires a Project folder). */
+export async function saveSetAs(dir: string, name: string) {
+  osa('tell application "Live" to activate');
+  await Bun.sleep(300);
+  osa('tell application "System Events" to keystroke "s" using {command down, shift down}');
+  await Bun.sleep(1200);
+  osa('tell application "System Events" to keystroke "g" using {command down, shift down}');
+  await Bun.sleep(600);
+  osa(`tell application "System Events" to keystroke "${dir.replace(/"/g, '\\"')}"`, 'tell application "System Events" to key code 36');
+  await Bun.sleep(800);
+  osa('tell application "System Events" to keystroke "a" using command down', `tell application "System Events" to keystroke "${name.replace(/"/g, '\\"')}"`, 'tell application "System Events" to key code 36');
+  const path = `${dir}/${name} Project/${name}.als`;
+  for (let i = 0; i < 40; i++) {
+    await Bun.sleep(250);
+    if (existsSync(path)) return path;
+  }
+  throw new Error(`save did not produce ${path}`);
+}
+
+/** Screenshot Live's main window (Arrangement or Session, whichever is showing). */
+export function screenshotLive(path: string) {
+  const b = osa('tell application "System Events" to tell process "Live" to get {position, size} of (first window whose subrole is "AXStandardWindow")').split(", ").map(Number);
+  Bun.spawnSync(["screencapture", "-x", "-R", `${b[0]},${b[1]},${b[2]},${b[3]}`, path]);
+  return existsSync(path) ? path : undefined;
+}
