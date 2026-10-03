@@ -483,6 +483,23 @@ def _clear_notes(ctx, track, slot, expect=None):
     return {}
 
 
+@op("clip_envelope")
+def _clip_envelope(ctx, track, slot, target, times, expect=None):
+    """Sample a clip envelope for a mixer target ("volume"/"pan") or device param."""
+    clip = ctx.clip(track, slot, expect)
+    t = ctx.track(track, expect)
+    if target in ("volume", "pan"):
+        param = t.mixer_device.volume if target == "volume" else t.mixer_device.panning
+    else:
+        dev, idx = target.split(":")
+        param = t.devices[int(dev)].parameters[int(idx)]
+    env = clip.automation_envelope(param)
+    if env is None:
+        return {"present": False}
+    values = [env.value_at_time(float(x)) for x in times]
+    return {"present": True, "values": values, "display": [param.str_for_value(v) for v in values]}
+
+
 @op("fire_clip")
 def _fire_clip(ctx, track, slot, expect=None):
     ctx.slot(track, slot, expect).fire()

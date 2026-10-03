@@ -31,3 +31,22 @@ Findings:
 | Helper restart | Live re-binds the port by name automatically |
 
 The performance path is ~11x faster than the socket path and never involves a model.
+
+## (c) Whole-Set generation (`.als`) — `spike/probe-song-file.ts`
+
+`engine/als.py` turns a song spec into a complete Live Set, starting from Live's own *Quick Start Song* template (so instrument racks, the drum kit, and returns are Live-authored XML). It rewrites tempo, scenes, clip slots, clips, notes, and clip envelopes, allocating automation ids above the template's `NextPointeeId`.
+
+| Measure | Result |
+|---|---|
+| Fixture: 4 sections, 3 parts, 10 clips, 484 notes, 1 volume envelope | opened in Live 12.4.5 with no repair/upgrade prompts |
+| Verification through the bridge | tempo, scene names, clip lengths, every note (pitch/start/duration/velocity), and envelope values exact |
+| Playback | Chorus scene launched; Drums, Keys, Bass playing |
+| Generate `.als` | 0.53 s |
+| Open in Live + bridge serving the new Set | 2.6 s |
+
+Findings:
+- The template's tempo lives in two places (`Tempo/Manual` and a default automation event); the automation event wins on load.
+- Mixer volume in `.als` is linear gain while the LOM uses a normalised fader value; specs use dB and verification compares Live's own display strings.
+- Clip envelopes written into the file are real Live automation (readable through `Clip.automation_envelope`), so filter sweeps/macros are reachable without a LOM write API.
+- Opening a Set replaces the current one. Live's "Save changes?" alert is reachable through accessibility (buttons carry descriptions), so it can be answered without moving the cursor. The probe only discards with `--discard`; the product must save or ask.
+- Set-to-playable mechanics take ~3 s, so model composition time dominates the five-minute target.
