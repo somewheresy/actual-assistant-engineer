@@ -4,7 +4,8 @@ import json
 import platform
 from pathlib import Path
 
-from . import cli, compact, live_arrangement, live_client, live_sets, live_vst, models
+from . import cli, compact, live_arrangement, live_client, live_sets, models
+from . import live_vst as vst_ops
 
 TOOLSET = "actual_assistant_engineer"
 
@@ -108,7 +109,7 @@ def live_set(args, **_):
         if action == "info":
             out = live_sets.info()
         elif action == "new":
-            out = live_sets.new(args.get("on_unsaved", "cancel"))
+            out = live_sets.new(args.get("name", "Untitled"), args.get("directory"), args.get("on_unsaved", "cancel"))
         elif action == "open":
             out = live_sets.open_set(args["path"], args.get("on_unsaved", "cancel"))
         elif action == "save":
@@ -146,22 +147,22 @@ def live_vst(args, **_):
     a = args.get("action")
     try:
         if a == "catalog":
-            out = {"plugins": live_vst.catalog(args.get("query"))}
+            out = {"plugins": vst_ops.catalog(args.get("query"))}
         elif a == "params":
-            out = live_vst.params(args["plugin"], args.get("query"), args.get("bundle_plugin"))
+            out = vst_ops.params(args["plugin"], args.get("query"), args.get("bundle_plugin"))
         elif a == "presets":
-            out = live_vst.presets(args["plugin"], args.get("query"))
+            out = vst_ops.presets(args["plugin"], args.get("query"))
         elif a == "programs":
-            out = live_vst.programs(args["track"], args["device"])
+            out = vst_ops.programs(args["track"], args["device"])
         elif a == "select_program":
-            out = live_vst.select_program(args["track"], args["device"], args["program"])
+            out = vst_ops.select_program(args["track"], args["device"], args["program"])
         elif a == "expose":
-            out = live_vst.expose(args["track"], args["device"], args["params"], args.get("bundle_plugin"))
+            out = vst_ops.expose(args["track"], args["device"], args["params"], args.get("bundle_plugin"))
         elif a == "load_state":
-            out = live_vst.load_state(args["track"], args["device"], args.get("preset"), args.get("values"), args.get("bundle_plugin"))
+            out = vst_ops.load_state(args["track"], args["device"], args.get("preset"), args.get("values"), args.get("bundle_plugin"))
         else:
             return _result({"ok": False, "error": "unknown action"})
-    except (live_vst.VstError, live_sets.SetError, ValueError, KeyError) as e:
+    except (vst_ops.VstError, live_sets.SetError, ValueError, KeyError) as e:
         return _result({"ok": False, "error": str(e)})
     return _result(dict(out, ok=True))
 
@@ -273,8 +274,8 @@ SCHEMAS["live_set"] = {
         "properties": {
             "action": {"type": "string", "enum": ["info", "new", "open", "save", "save_as"]},
             "path": {"type": "string", "description": "open: path to the .als"},
-            "name": {"type": "string", "description": "save_as: Set name"},
-            "directory": {"type": "string", "description": "save_as: folder for the Project (default ~/Documents/Ableton Live Projects/Hermes)"},
+            "name": {"type": "string", "description": "new/save_as: Set name"},
+            "directory": {"type": "string", "description": "new/save_as: folder for the Project (default ~/Documents/Ableton Live Projects/Hermes)"},
             "on_unsaved": {"type": "string", "enum": ["save", "discard", "cancel"]},
         },
     },
@@ -318,7 +319,7 @@ HANDLERS = {"live_set": live_set, "live_vst": live_vst, "live_arrangement_automa
 
 
 def register(ctx):
-    if platform.system() != "Darwin":
+    if platform.system() not in ("Darwin", "Windows"):
         return
     for name, schema in SCHEMAS.items():
         ctx.register_tool(
