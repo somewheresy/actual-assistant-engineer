@@ -4,7 +4,7 @@ import json
 import platform
 from pathlib import Path
 
-from . import live_client, live_sets
+from . import live_arrangement, live_client, live_sets
 
 TOOLSET = "actual_assistant_engineer"
 
@@ -120,6 +120,24 @@ def live_set(args, **_):
     return _result(dict(out, ok=True))
 
 
+def live_arrangement_automation(args, **_):
+    action, track, target = args.get("action"), args.get("track"), args.get("target")
+    try:
+        if action == "list":
+            out = live_arrangement.list_automated(track, args.get("path"))
+        elif action == "read":
+            out = live_arrangement.read(track, target, args.get("path"))
+        elif action == "write":
+            out = live_arrangement.write(track, target, args.get("points") or [], args.get("path"))
+        elif action == "delete":
+            out = live_arrangement.delete(track, target, args.get("path"))
+        else:
+            return _result({"ok": False, "error": "action must be list, read, write, or delete"})
+    except (live_arrangement.AutomationError, live_sets.SetError, ValueError, KeyError) as e:
+        return _result({"ok": False, "error": str(e)})
+    return _result(dict(out, ok=True))
+
+
 def live_browse(args, **_):
     searches = args.get("searches")
     if searches:
@@ -230,7 +248,23 @@ SCHEMAS["live_set"] = {
     },
 }
 
-HANDLERS = {"live_set": live_set, "live_inspect": live_inspect, "live_ops": live_ops, "live_browse": live_browse, "live_review": live_review, "live_analyze": live_analyze}
+SCHEMAS["live_arrangement_automation"] = {
+    "name": "live_arrangement_automation",
+    "description": "Arrangement (track-lane) automation, which Live's API can't reach directly: list, read, write (create or replace), or delete the envelope for one parameter on the timeline. target: \"volume\" | \"pan\" | \"send:A\" | \"<device index or name>:<parameter>\" (e.g. \"Auto Filter:Frequency\", \"0:Macro 1\"). points: [[beat, value], ...] with raw numbers or display values (\"200 Hz\", \"-6 dB\"). Each write/delete saves the Set, edits its file, and reopens it (a few seconds), so batch your automation thinking and write each lane once. Requires a Set opened or created with live_set. For clip envelopes use live_ops automate instead.",
+    "parameters": {
+        "type": "object",
+        "required": ["action", "track"],
+        "properties": {
+            "action": {"type": "string", "enum": ["list", "read", "write", "delete"]},
+            "track": {"type": "string"},
+            "target": {"type": "string"},
+            "points": {"type": "array", "items": {"type": "array"}},
+            "path": {"type": "string", "description": "the Set file, if it wasn't opened with live_set"},
+        },
+    },
+}
+
+HANDLERS = {"live_set": live_set, "live_arrangement_automation": live_arrangement_automation, "live_inspect": live_inspect, "live_ops": live_ops, "live_browse": live_browse, "live_review": live_review, "live_analyze": live_analyze}
 
 
 def register(ctx):

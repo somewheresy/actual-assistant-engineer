@@ -8,7 +8,8 @@ macOS only. Plan and status: [#1](https://github.com/actual-computer/actual-assi
 
 ```
 Hermes (session model: GLM-5.3, Claude Opus 5.5, ...)
-  └─ plugin/actual-assistant-engineer   tools: live_set, live_inspect, live_ops, live_browse, live_review, live_analyze
+  └─ plugin/actual-assistant-engineer   tools: live_set, live_inspect, live_ops, live_browse, live_review,
+                                        live_analyze, live_arrangement_automation
         │  Unix socket (0600, no TCP port), newline-delimited JSON batches
         ▼
 Ableton Live ── "Hermes" control surface (live/Hermes, runs inside Live's Python)
@@ -17,8 +18,8 @@ Ableton Live ── "Hermes" control surface (live/Hermes, runs inside Live's Py
         • CoreMIDI fast path for performance gestures (~9 ms), via native/hermes-midi
 ```
 
-- `live/Hermes/` — the control surface. `ops.py` (tracks, scenes, clips, notes and step patterns, devices, browser, transport, arrangement, locators), `ops_mix.py` (insert/delete devices, params by display value like `"1.2 kHz"`/`"-6 dB"`/`"4:1"`, routing, sidechain, one-call mixer with exact dB), `ops_automation.py` (clip envelopes), `ops_review.py` (completeness review and section-by-section QA analysis), `ops_lom.py` (generic `get`/`set`/`call`/`describe` on any Live Object Model path, e.g. `song.tracks["BASS"].devices[0]`).
-- `plugin/actual-assistant-engineer/` — the native Hermes plugin and its `assistant-engineer` skill.
+- `live/Hermes/` — the control surface. `ops.py` (tracks, scenes, clips, notes and step patterns, devices, browser, transport, arrangement, locators), `ops_mix.py` (insert/delete devices, params by display value like `"1.2 kHz"`/`"-6 dB"`/`"4:1"`, routing, sidechain, one-call mixer with exact dB), `ops_automation.py` (clip envelopes), `ops_review.py` (completeness review and section-by-section QA analysis), `ops_devices.py` (declarative device graphs: any instrument/effect/rack structure, nested chains, drum pads; `device_tree`, `configure` at any depth), `ops_lom.py` (generic `get`/`set`/`call`/`describe` on any Live Object Model path, e.g. `song.tracks["BASS"].devices[0]`).
+- `plugin/actual-assistant-engineer/` — the native Hermes plugin and its `assistant-engineer` skill. It also holds the file translation layer (`als_automation.py`): Live's API can't reach some features (arrangement automation, macro mappings), so those round-trip through the Set file, locating tracks, devices, and parameters by their LOM names and inferring each parameter's file units from its current value.
 - `src/` — Bun client (`src/live/client.ts`), the `aae` CLI, and track measurement.
 - `engine/als.py` — writes complete Live Sets from a song spec (template-based `.als` generation).
 - `spike/` — probes and `run-song.ts`, the end-to-end harness that builds, gates, measures, screenshots, and saves a track per run.
@@ -54,7 +55,7 @@ Then:
      max_concurrent_children: 4
      oneshot_max_children: 4
    ```
-3. Verify: `hermes plugins doctor actual-assistant-engineer` should report 6 tools.
+3. Verify: `hermes plugins doctor actual-assistant-engineer` should report 7 tools.
 
 Optional performance path: run `bin/hermes-midi` (publishes the "Hermes Performance" MIDI port), then in Live set the Hermes control surface's *Input* to **Hermes Performance** and turn off that port's *Track* input.
 
@@ -88,6 +89,7 @@ To continue a previous run, resume its session: `hermes chat --resume <session i
 ```bash
 bun run typecheck
 bun run test:bridge                 # bridge logic against an in-memory fake of Live (pytest)
+bun run test:engine                 # Set-file translation layer against a Live-saved .als (pytest)
 bun run test:live                   # integration suite against the running Live (uses only "Hermes IT" tracks)
 bun run aae reload                  # hot-reload the control surface after editing live/Hermes
 bun run aae '<op json>' ...         # run ops as one batch; `bun run aae events` streams Live events
@@ -98,7 +100,7 @@ See [AGENTS.md](AGENTS.md) for conventions and safety rules.
 ## Status and limits
 
 - Built and measured in the feasibility spike (#1): GLM-5.3 builds a complete, gated progressive house track in ~1–2 min; Claude Opus 5.5 in ~1.5–3.5 min with richer parts and automation.
-- Live creates clip automation only on session clips; automate in Session View, then place clips into the Arrangement (copies keep their envelopes).
+- Live creates clip automation only on session clips; automate in Session View, then place clips into the Arrangement (copies keep their envelopes). Track-lane arrangement automation goes through `live_arrangement_automation` (save, edit the file, reopen).
 - Large VST instruments expose no parameters until configured in Live; built-in instruments and presets are fully controllable.
 - `live_set` covers Sets created or opened through it; Live's Save panel is never driven, so saving an untitled Set made by hand is left to the producer.
 - No audio export or audio analysis yet; QA is based on the arrangement and MIDI.

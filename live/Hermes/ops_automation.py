@@ -154,3 +154,34 @@ def _list_automation(ctx, track, slot=None, arrangement=None, expect=None):
     """Targets that currently have envelopes on the clip."""
     t, clip = _select(ctx, track, slot, arrangement, expect)
     return {"targets": [label for label, p in _candidate_params(t) if clip.automation_envelope(p) is not None]}
+
+
+@op("param_info")
+def _param_info(ctx, track, target, values=(), expect=None):
+    """A parameter's current state and conversions for a list of values (raw numbers or display
+    strings): raw value Live would use and the display text for each. Used to translate between
+    the LOM and a Set file, which stores some parameters in display units."""
+    from .ops import parse_display
+
+    t = ctx.track(track, expect)
+    p = resolve_target(t, target)
+    raws = [param_value(p, v) for v in values]
+    shown = lambda v: p.str_for_value(v)
+    current = parse_display(shown(p.value))
+    device_index, names = None, None
+    if ":" in target and not target.startswith("send:"):
+        dev = _index(t.devices, _ref(target.split(":", 1)[0]), "device")
+        device_index = list(t.devices).index(dev)
+        names = [q.name for q in dev.parameters]
+    return {
+        "name": p.name,
+        "value": p.value,
+        "display": shown(p.value),
+        "display_number": current[0] if current else None,
+        "raw_values": raws,
+        "displays": [shown(v) for v in raws],
+        "automation_state": getattr(p, "automation_state", None),
+        "device_index": device_index,
+        "lom_names": names,
+        "is_volume": p is t.mixer_device.volume,
+    }
