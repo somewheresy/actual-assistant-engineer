@@ -16,14 +16,14 @@ const { values: args } = parseArgs({
       default:
         "Make me a progressive house track in the Live Set that's open. Around 124 BPM, with a long build, a big emotional breakdown, and a drop. Pick the sounds, write the parts, add FX and automation (filter sweeps, risers, sidechain compression from the kick), mix it, and lay it out in the Arrangement as a finished song with named sections. Tell me what you made when you're done.",
     },
-    home: { type: "string", default: process.env.HERMES_HOME },
+    // The parent Hermes: its configured model and provider are used unless --provider/--model override them.
+    home: { type: "string", default: process.env.HERMES_HOME ?? `${homedir()}/.hermes` },
     discard: { type: "boolean", default: false },
     budget: { type: "string", default: "1800" },
     provider: { type: "string" },
     model: { type: "string" },
   },
 });
-if (!args.home) throw new Error("pass --home <HERMES_HOME> (configured with the model and plugin)");
 
 const runDir = `${homedir()}/Documents/Ableton Live Projects/Hermes Demos/runs/${args.label!.replace(/[^\w .-]+/g, "")}`;
 mkdirSync(runDir, { recursive: true });
