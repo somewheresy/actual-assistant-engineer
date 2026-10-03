@@ -127,7 +127,12 @@ class Hermes(ControlSurface):
             return {"id": rid, "ok": True, "subscribed": True}
         if req.get("reload"):
             return dict(self._reload(), id=rid)
-        results, ok = self._ctx.run_batch(req.get("ops", []), req.get("undo_step", True))
+        try:
+            results, ok = self._ctx.run_batch(req.get("ops", []), req.get("undo_step", True))
+        except Exception as e:
+            # Every request gets an answer; a silent failure makes the caller wait out its timeout.
+            self.log_message("Hermes batch failed: %s" % traceback.format_exc())
+            results, ok = [{"ok": False, "error": "%s: %s" % (type(e).__name__, e)}], False
         return {
             "id": rid,
             "ok": ok,

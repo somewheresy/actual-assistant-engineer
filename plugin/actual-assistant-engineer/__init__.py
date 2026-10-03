@@ -18,7 +18,8 @@ OPS_DOC = """Ops (all positions in beats; 1 bar of 4/4 = 4 beats; pitches are MI
 - set_scene {scene, expect?, name?, color?}
 - fire_scene {scene} / fire_clip {track, slot} / stop_track {track}
 - create_clip {track, slot, length (beats), name?, color?, replace?: false, expect?}
-- add_notes {track, slot, notes: [[pitch, start, duration, velocity], ...], expect?}  (compact arrays; {pitch, start, duration, velocity} objects also work)
+- add_notes {track, slot, notes?: [[pitch, start, duration, velocity], ...], patterns?: {"<pitch>": "x.X-..."}, step?: 0.25, velocity?: 100, accent?: 120, expect?}
+    patterns write rhythmic parts compactly, one character per step from beat 0: x hit, X accented hit, - hold the previous note one more step, . rest. step is in beats (0.25 = 16ths, 0.5 = 8ths). notes and patterns can be combined.
 - get_notes {track, slot} / clear_notes {track, slot} / delete_clip {track, slot}
 - set_clip {track, slot, name?, color?, looping?, loop_start?, loop_end?}
 - clip_envelope {track, slot, target: "volume"|"pan"|"<device>:<param>", times: [beats]} -> sampled values
@@ -28,7 +29,7 @@ OPS_DOC = """Ops (all positions in beats; 1 bar of 4/4 = 4 beats; pitches are MI
 - browser_load {track, root, path: [names...]} loads a browser item (from live_browse) onto the track
 - select_device {track, device}
 `track` is an index or exact name ("master", "return:0" also work); `scene`/`slot` are indexes.
-Any string "$N.key" is replaced by result N's key, e.g. create_track then create_clip {track: "$0.index", ...}.
+Refer to tracks you create by their name in later ops (names are exact-match). "$N.key" also works: N is the position of an earlier op in this same ops list (0-based) and key a field of its result, e.g. "$2.index".
 Pass expect: "<current name>" on edits to existing user tracks so a stale index fails instead of editing the wrong track."""
 
 
@@ -68,16 +69,28 @@ def live_ops(args, **_):
 
 
 def live_browse(args, **_):
-    root, query, path = args["root"], args.get("query"), args.get("path") or []
-    op = {"op": "browser_search", "root": root, "query": query, "limit": args.get("limit", 25)} if query else {"op": "browser_list", "root": root, "path": path}
-    res = _call([op], timeout=30.0)
+    searches = args.get("searches")
+    if searches:
+        ops = [{"op": "browser_search", "root": q["root"], "query": q["query"], "limit": q.get("limit", 15)} for q in searches]
+        res = _call(ops, timeout=60.0)
+        if not res.get("ok") and not res.get("results"):
+            return _result(res)
+        out = []
+        for q, r in zip(searches, res.get("results", [])):
+            hits = ["/".join(i["path"]) for i in r.get("items", [])] if r.get("ok") else r.get("error")
+            out.append({"root": q["root"], "query": q["query"], "paths": hits})
+        return _result({"results": out})
+    root, path = args.get("root"), args.get("path") or []
+    if not root:
+        return _result({"ok": False, "error": "pass searches, or root (+ path) to list a folder"})
+    res = _call([{"op": "browser_list", "root": root, "path": path}], timeout=30.0)
     if not res.get("ok"):
         return _result(res)
-    out = res["results"][0]
+    items = res["results"][0].get("items", [])
     limit = args.get("limit", 40)
-    if not query and len(out.get("items", [])) > limit:
-        out["more"] = len(out["items"]) - limit
-        out["items"] = out["items"][:limit]
+    out = {"root": root, "path": path, "items": [i["name"] + ("/" if i["folder"] else "") for i in items[:limit]]}
+    if len(items) > limit:
+        out["more"] = len(items) - limit
     return _result(out)
 
 
@@ -106,13 +119,19 @@ SCHEMAS = {
     },
     "live_browse": {
         "name": "live_browse",
-        "description": "Find instruments, effects, drum kits, presets, samples, and VST/AU plug-ins in Live's browser. With `query`, searches loadable items by name under `root`; otherwise lists the children at `path`. Load results with live_ops browser_load using the same root and path.",
+        "description": "Find instruments, effects, drum kits, presets, samples, and VST/AU plug-ins in Live's browser. Pass several `searches` at once (each matches every word against the item's folder path and name) to gather all your candidate sounds in one call; or pass `root` (+ `path`) to list a folder (names ending in / are folders). Results are paths like \"Bass/Basic FM House Bass.adg\"; load one with live_ops browser_load {root, path: [\"Bass\", \"Basic FM House Bass.adg\"]}. Roots: sounds (instrument presets by category), drums (kits and hits), instruments, audio_effects, midi_effects, plugins, samples, user_library, packs.",
         "parameters": {
             "type": "object",
-            "required": ["root"],
             "properties": {
+                "searches": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["root", "query"],
+                        "properties": {"root": {"type": "string", "enum": ROOTS}, "query": {"type": "string"}, "limit": {"type": "integer"}},
+                    },
+                },
                 "root": {"type": "string", "enum": ROOTS},
-                "query": {"type": "string"},
                 "path": {"type": "array", "items": {"type": "string"}},
                 "limit": {"type": "integer"},
             },

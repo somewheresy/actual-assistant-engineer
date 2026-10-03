@@ -50,13 +50,14 @@ class Context:
             song.begin_undo_step()
         try:
             for i, raw in enumerate(batch):
-                args = _resolve(raw, results)
-                name = args.pop("op", None)
+                name = raw.get("op") if isinstance(raw, dict) else None
                 fn = OPS.get(name)
                 if fn is None:
-                    results.append({"ok": False, "error": "unknown op %r" % name})
+                    results.append({"ok": False, "error": "unknown op %r" % name, "index": i})
                     return results, False
                 try:
+                    args = _resolve(raw, results)
+                    args.pop("op", None)
                     out = fn(self, **args) or {}
                     out["ok"] = True
                     results.append(out)
@@ -166,7 +167,10 @@ def _resolve(value, results):
         if m:
             n, key = int(m.group(1)), m.group(2)
             if n >= len(results) or key not in results[n]:
-                raise OpError("unresolvable reference %s" % value)
+                if n >= len(results):
+                    raise OpError("unresolvable reference %s: $N is the Nth op in this batch (0-based) and only %d ops ran before this one; refer to tracks by name instead" % (value, len(results)))
+                have = sorted(k for k in results[n] if k != "ok")
+                raise OpError("unresolvable reference %s: op %d returned %s" % (value, n, have))
             return results[n][key]
     return value
 
@@ -466,10 +470,27 @@ def _note_spec(n):
     )
 
 
+def _pattern_notes(patterns, step, velocity, accent):
+    """Expand {pitch: "x.X-..."} step strings: x hit, X accent, - hold previous, . rest."""
+    out = []
+    for pitch, pattern in patterns.items():
+        note = None
+        for i, c in enumerate(pattern):
+            if c == "-" and note is not None:
+                note["duration"] += step
+                continue
+            note = None
+            if c in "xX":
+                note = {"pitch": int(pitch), "start": i * step, "duration": step, "velocity": accent if c == "X" else velocity}
+                out.append(note)
+    return out
+
+
 @op("add_notes")
-def _add_notes(ctx, track, slot, notes, expect=None):
+def _add_notes(ctx, track, slot, notes=(), patterns=None, step=0.25, velocity=100, accent=120, expect=None):
     clip = ctx.clip(track, slot, expect)
-    specs = tuple(_note_spec(n) for n in notes)
+    all_notes = list(notes) + (_pattern_notes(patterns, float(step), velocity, accent) if patterns else [])
+    specs = tuple(_note_spec(n) for n in all_notes)
     clip.add_new_notes(specs)
     return {"added": len(specs), "total": len(clip.get_notes_extended(0, 128, 0.0, clip.length))}
 
@@ -590,7 +611,7 @@ def _browser_list(ctx, root, path=()):
 
 @op("browser_search")
 def _browser_search(ctx, root, query, limit=25, max_depth=6):
-    q = query.lower()
+    terms = query.lower().split()
     found = []
     stack = [(_browser_root(ctx, root), [])]
     visited = 0
@@ -599,7 +620,9 @@ def _browser_search(ctx, root, query, limit=25, max_depth=6):
         for c in item.children:
             visited += 1
             p = path + [c.name]
-            if c.is_loadable and q in c.name.lower():
+            # Every word must appear somewhere in the item's path ("house kit" finds House/.../X Kit.adg).
+            haystack = " ".join(p).lower()
+            if c.is_loadable and all(t in haystack for t in terms):
                 found.append({"path": p, "name": c.name, "device": c.is_device})
                 if len(found) >= limit:
                     break
