@@ -1,6 +1,6 @@
 # Windows port: installation and qualification
 
-This branch adds Windows code paths; it is not yet a claim of completed Ableton GUI qualification. See the verification table below. macOS retains its Unix socket transport.
+This branch adds Windows support qualified against actual Ableton Live 12.4.6, including native ARM64 Hermes with x64 Live under Prism. See [verification evidence and limits](windows-verification.md). macOS retains its Unix socket transport.
 
 ## Requirements
 
@@ -48,9 +48,9 @@ A lifetime OS lock prevents another Live instance from stealing the endpoint. Cl
 ## Set safety
 
 - Set automation verifies Live's executable/process and window identity.
-- Windows UIA uses menu/button patterns, not synthesized global shortcuts or foreground mouse clicks.
+- Windows uses UIA menu/button patterns and HWND-scoped native control messages for Save As filename updates/confirmation. No synthesized global shortcuts, foreground mouse clicks, or cursor movement.
 - Unsaved work defaults to cancel. Save/discard requires an explicit policy; save needs an associated on-disk file.
-- Same-name Sets that cannot be distinguished safely are rejected instead of silently associating the wrong file.
+- Same-name Sets that cannot be distinguished safely are rejected instead of silently associating the wrong file. Reopening a known same-name Set verifies endpoint generation change even if polling misses the disconnect. Stock-template format upgrades keep a pre-upgrade backup before completing the Save As prompt.
 - Unsupported UIA controls, modal dialogs, and permission failures produce actionable errors rather than pretending there is no dialog.
 
 ## VSTs and ARM64
@@ -65,7 +65,7 @@ Offline hosting inspects the PE architecture of a `.vst3` binary/bundle and sele
 - UIA dependency import under x64 Python/Prism: exercised.
 - Official Live 12.4.6 Windows trial: installer signature verified; installed on Windows 11 ARM64, including the ARM audio driver. Installer requests restart (not performed automatically).
 - Real Live executable/resource/template discovery, launch under Prism, Set-title readback, and detection of its embedded trial-activation dialog: exercised. Control-surface copy verified byte-for-byte on disk.
-- Trial activation, bridge selection, create/open/save/dialog controls, arrangement round trip, third-party VST load/state, and audible playback: **pending live qualification**.
+- Authenticated bridge, 15 real Live integration tests, new/open/save/save-as, same-Set arrangement automation round trip, and Dragonfly VST3 parameter/state/exposure round trip: **passed against Live 12.4.6**. Audio quality has not been judged by listening.
 - macOS runtime regression: platform-mocked tests only on this host; actual macOS execution still required.
 - Swift MIDI-performance and screenshot helpers remain macOS-only. Their absence does not disable the eight core tools. Windows performance input can use the authenticated socket and Live's existing MIDI input path; no bundled Windows virtual-MIDI driver is installed.
 - Audio export/analysis were not implemented upstream and are not added by this OS port.
