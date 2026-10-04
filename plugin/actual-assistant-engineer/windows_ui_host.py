@@ -9,11 +9,11 @@ def main():
     try:
         request = json.load(sys.stdin)
         method = request["method"]
-        if method not in ("snapshot", "menu", "click"):
+        if method not in ("snapshot", "menu", "click", "save_file"):
             raise ValueError("unsupported accessibility operation")
         result = getattr(LiveUI(Path(request["exe"])), method)(*request.get("args", []), **request.get("kwargs", {}))
         if method == "snapshot" and result is not None:
-            result = {"name": result.name, "identity": result.identity,
+            result = {"name": result.name, "identity": result.identity, "modified": result.modified,
                       "dialogs": [{"text": d.text, "buttons": d.buttons} for d in result.dialogs]}
         print(json.dumps({"result": result}))
     except Exception as exc:

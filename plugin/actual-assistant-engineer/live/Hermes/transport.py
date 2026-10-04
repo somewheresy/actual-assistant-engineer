@@ -71,7 +71,12 @@ ENDPOINT_PATH = os.path.join(DIRECTORY, "live.endpoint.json")
 
 
 if WINDOWS:
-    import ctypes
+    try:
+        import ctypes
+    except ImportError:
+        ctypes = None  # Live's embedded Windows Python omits this stdlib module.
+
+if WINDOWS and ctypes is not None:
     import msvcrt
     import struct
     from ctypes import wintypes as W
@@ -168,6 +173,63 @@ if WINDOWS:
             _free(sa.descriptor)
 
 
+if WINDOWS and ctypes is None:
+    # Live includes subprocess, _winapi and msvcrt, but not ctypes. Delegate only
+    # ACL creation/inspection to Windows' own PowerShell/.NET; no key crosses it.
+    import subprocess
+    import _winapi
+    import msvcrt
+
+    def _acl_command(path, operation):
+        script = r'''
+$ErrorActionPreference = 'Stop'
+$p = $env:AAE_ACL_PATH
+$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+if ($env:AAE_ACL_OP -eq 'directory' -and !(Test-Path -LiteralPath $p)) {
+    $sec = New-Object System.Security.AccessControl.DirectorySecurity
+    $sec.SetOwner($sid)
+    $sec.SetAccessRuleProtection($true, $false)
+    $sec.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($sid,'FullControl','Allow'))
+    [System.IO.Directory]::CreateDirectory($p, $sec) | Out-Null
+}
+if ($env:AAE_ACL_OP -eq 'file' -or $env:AAE_ACL_OP -eq 'lock') {
+    $sec = New-Object System.Security.AccessControl.FileSecurity
+    $sec.SetOwner($sid)
+    $sec.SetAccessRuleProtection($true, $false)
+    $sec.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($sid,'FullControl','Allow'))
+    $mode = if ($env:AAE_ACL_OP -eq 'file') { [System.IO.FileMode]::CreateNew } else { [System.IO.FileMode]::OpenOrCreate }
+    $f = [System.IO.FileStream]::new($p,$mode,[System.Security.AccessControl.FileSystemRights]::FullControl,[System.IO.FileShare]::Read,4096,[System.IO.FileOptions]::None,$sec)
+    $f.Dispose()
+}
+$item = Get-Item -LiteralPath $p -Force
+if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'reparse point' }
+$acl = Get-Acl -LiteralPath $p
+$sd = [System.Security.AccessControl.RawSecurityDescriptor]::new($acl.GetSecurityDescriptorBinaryForm(),0)
+if (!$acl.AreAccessRulesProtected -or $sd.Owner.Value -ne $sid.Value -or $sd.DiscretionaryAcl.Count -ne 1) { throw 'insecure ACL' }
+$ace = $sd.DiscretionaryAcl[0]
+if ($ace.SecurityIdentifier.Value -ne $sid.Value -or $ace.AceQualifier -ne 'AccessAllowed' -or [int]$ace.AceFlags -ne 0 -or $ace.AccessMask -ne 2032127) { throw 'insecure ACE' }
+'''
+        env = dict(os.environ, AAE_ACL_PATH=os.path.abspath(path), AAE_ACL_OP=operation)
+        exe = os.path.join(os.environ.get('SystemRoot', 'C:/Windows'), 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+        result = subprocess.run([exe, '-NoProfile', '-NonInteractive', '-Command', script],
+                                env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                timeout=15, creationflags=0x08000000)
+        if result.returncode:
+            raise PermissionError('Cannot establish or validate current-user-only Live transport ACL')
+
+    def _win_private(path):
+        _acl_command(path, 'validate')
+
+    def _win_open(path, disposition, share=1):
+        _acl_command(path, 'file' if disposition == 1 else 'lock')
+        handle = _winapi.CreateFile(str(path), 0xC0000000, share, 0, 3, 0x00200080, 0)
+        try:
+            return msvcrt.open_osfhandle(handle, os.O_RDWR | os.O_BINARY)
+        except Exception:
+            _winapi.CloseHandle(handle)
+            raise
+
+
 def validate_private(path, directory=False):
     st = os.lstat(path)
     if stat.S_ISLNK(st.st_mode) or getattr(st, "st_file_attributes", 0) & 0x400:
@@ -182,7 +244,9 @@ def validate_private(path, directory=False):
 
 
 def _private_directory(directory):
-    if WINDOWS:
+    if WINDOWS and ctypes is None:
+        _acl_command(directory, 'directory')
+    elif WINDOWS:
         sa = _security_attributes()
         try:
             if not _create_dir(str(directory), ctypes.byref(sa)) and ctypes.get_last_error() != 183:

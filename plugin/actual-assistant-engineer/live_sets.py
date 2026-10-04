@@ -76,7 +76,7 @@ def _win_worker(method, *args, **kwargs):
             raise error(reply["error"])
         state = reply["result"]
         if method == "snapshot" and state is not None:
-            return SimpleNamespace(name=state["name"], identity=tuple(state["identity"]),
+            return SimpleNamespace(name=state["name"], identity=tuple(state["identity"]), modified=state.get("modified", True),
                                    dialogs=tuple(SimpleNamespace(**d) for d in state["dialogs"]))
         return state
     except (OSError, ValueError, KeyError, subprocess.TimeoutExpired) as exc:
@@ -166,9 +166,9 @@ def _handle_windows_dialogs(on_unsaved, deadline):
         cancel_error = None
         if dialog.text.startswith("Save changes"):
             if on_unsaved == "discard":
-                label = "Don't Save"
+                label = "No" if "No" in dialog.buttons else "Don't Save"
             elif on_unsaved == "save" and (path := _current_path()):
-                label = "Save"
+                label = "Yes" if "Yes" in dialog.buttons else "Save"
                 before = Path(path).stat().st_mtime_ns
             else:
                 label = "Cancel"
@@ -270,6 +270,14 @@ def _open_windows(path, on_unsaved, timeout=60.0):
         raise SetError(str(exc)) from exc
 
 
+def _endpoint_identity():
+    try:
+        stat = Path(live_client.ENDPOINT_PATH).stat()
+        return stat.st_ino, stat.st_mtime_ns
+    except (OSError, AttributeError):
+        return None
+
+
 def _open_windows_impl(path, on_unsaved, timeout):
     global _windows_opened
     if on_unsaved not in ("cancel", "save", "discard"):
@@ -282,6 +290,7 @@ def _open_windows_impl(path, on_unsaved, timeout):
         raise SetError("Live already has a dialog; resolve it before opening another Set")
     if previous and previous.name == path.stem and _current_path() != str(path):
         raise SetError("cannot distinguish same-name Sets by Live's title; open a differently named Set first")
+    generation = _endpoint_identity()
     try:
         process = subprocess.Popen([str(live_app.bundle()), str(path)], shell=False)
     except OSError as exc:
@@ -302,7 +311,8 @@ def _open_windows_impl(path, on_unsaved, timeout):
             answered.extend(_handle_windows_dialogs(on_unsaved, max(0, end - time.monotonic())))
             continue
         connected = live_client.available()
-        if not connected:
+        current_generation = _endpoint_identity()
+        if not connected or (current_generation is not None and current_generation != generation):
             transitioned = True
         if transitioned and state and state.name == path.stem and connected:
             try:
@@ -334,8 +344,24 @@ def save():
     path = _current_path()
     if not path:
         raise SetError("the open Set wasn't created or opened by Hermes, so its file is unknown; use save_as with a name")
+    if _is_windows():
+        state = _win_call('snapshot')
+        if state and not state.dialogs and getattr(state, 'modified', True) is False:
+            return {"name": Path(path).stem, "path": path, "saved": True, "unchanged": True}
     before = Path(path).stat().st_mtime_ns
     _menu("Save Live Set")
+    if _is_windows():
+        state = _win_call('snapshot')
+        if state and len(state.dialogs) == 1 and state.dialogs[0].text.startswith('The Live Set you are trying to save was created with a version of Live'):
+            # Stock templates can predate this Live version. Preserve the exact
+            # original before explicitly confirming an in-place format upgrade.
+            import tempfile
+            with tempfile.NamedTemporaryFile(prefix=Path(path).stem + '.pre-upgrade-', suffix='.als',
+                                             dir=Path(path).parent, delete=False) as backup:
+                with open(path, 'rb') as original:
+                    shutil.copyfileobj(original, backup)
+            _win_call('click', 'Save As...', expected_text=state.dialogs[0].text)
+            _win_call('save_file', path, overwrite=True)
     _handle_dialogs("cancel")
     for _ in range(40):
         if _is_windows():

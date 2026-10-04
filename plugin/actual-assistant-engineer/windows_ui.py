@@ -23,6 +23,33 @@ class Snapshot:
     identity: tuple
     window: object
     dialogs: tuple
+    modified: bool = True
+
+
+def set_filename(edit, path, pid):
+    """Set the common dialog's native edit and notify its owning combo.
+
+    UIA ValuePattern alone changes the visible text but Live's shell dialog can
+    retain the old filename. These are HWND-scoped control messages, not keys.
+    """
+    import win32gui
+    import win32process
+    handle = edit.handle
+    if edit.element_info.process_id != pid or win32process.GetWindowThreadProcessId(handle)[1] != pid:
+        raise UIError('filename control belongs to another process')
+    combo = win32gui.GetParent(handle)
+    sink = win32gui.GetParent(combo)
+    for hwnd in (combo, sink):
+        if not hwnd or win32process.GetWindowThreadProcessId(hwnd)[1] != pid:
+            raise UIError('filename parent belongs to another process')
+    import ctypes
+    text = ctypes.create_unicode_buffer(str(path))
+    win32gui.SendMessageTimeout(handle, 12, 0, ctypes.addressof(text), 2, 5000)  # WM_SETTEXT
+    if edit.iface_value.CurrentValue != str(path):
+        raise UIError('Live Save dialog did not accept the requested filename')
+    win32gui.SendMessageTimeout(handle, 185, 1, 0, 2, 5000)  # EM_SETMODIFY
+    win32gui.PostMessage(combo, 273, (768 << 16) | win32gui.GetDlgCtrlID(handle), handle)  # EN_CHANGE
+    win32gui.PostMessage(sink, 273, (5 << 16) | win32gui.GetDlgCtrlID(combo), combo)  # CBN_EDITCHANGE
 
 
 class LiveUI:
@@ -66,7 +93,7 @@ class LiveUI:
         if not matches:
             return None
         if len(matches) != 1:
-            raise UIError("multiple processes for Live; close the extra instance")
+            raise WindowNotReady("multiple processes for Live; waiting for the forwarding launcher to exit (close extra instances if this persists)")
         process = matches[0]
         windows = [w for w in self._connect(process["pid"]).windows() if w.is_visible()]
         for w in windows:
@@ -97,7 +124,7 @@ class LiveUI:
             raise UIError("Live's main window is disabled but its blocking dialog is inaccessible")
         return Snapshot(set_name(window.window_text()),
                         (process["pid"], process["create_time"], window.element_info.handle),
-                        window, tuple(dialogs))
+                        window, tuple(dialogs), window.window_text().split(" - Ableton Live", 1)[0].rstrip().endswith("*"))
 
     def menu(self, item):
         try:
@@ -117,6 +144,51 @@ class LiveUI:
             raise
         except Exception as exc:
             raise UIError("cannot invoke Live File > %s through UIA: %s" % (item, exc)) from exc
+
+    def save_file(self, path, overwrite=False):
+        """Complete Live's native Save As panel using exact process-bound controls."""
+        import time
+        import win32gui
+        import win32process
+        from pathlib import Path
+        target_path = Path(path).resolve()
+        if target_path.suffix.lower() != '.als' or not target_path.parent.is_dir():
+            raise UIError('Save target must be an .als in an existing directory')
+        if target_path.exists() and not overwrite:
+            raise UIError('refusing to overwrite existing Set')
+        state = self.snapshot()
+        if state is None:
+            raise UIError('Live is not running')
+        pid = state.identity[0]
+        def native_button(node):
+            self._scope(node, pid)
+            if not node.handle or win32process.GetWindowThreadProcessId(node.handle)[1] != pid:
+                raise UIError('native save button belongs to another process')
+            win32gui.PostMessage(node.handle, 245, 0, 0)  # BM_CLICK, no cursor/focus
+        panels = [d.window for d in state.dialogs if d.window.window_text() == 'Save Live Set As:']
+        if len(panels) != 1:
+            raise UIError('expected one Live Save As panel')
+        panel = panels[0]
+        edit = self._unique(panel.descendants(control_type='Edit'), 'File name:', pid)
+        set_filename(edit, str(target_path), pid)
+        time.sleep(0.15)  # let the native combo consume its change notifications
+        native_button(self._unique(panel.descendants(control_type='Button'), 'Save', pid))
+        confirmed = False
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            state = self.snapshot()
+            if state is None or state.identity[0] != pid:
+                raise UIError('Live changed process during save; outcome unknown')
+            if state.name == target_path.stem and not state.dialogs and target_path.is_file():
+                return {'path': str(target_path), 'saved': True}
+            for dialog in state.dialogs:
+                if dialog.window.window_text() == 'Confirm Save As':
+                    if not overwrite or confirmed or target_path.name not in dialog.text or 'already exists' not in dialog.text:
+                        raise UIError('unexpected overwrite confirmation; no response sent')
+                    native_button(self._unique(dialog.window.descendants(control_type='Button'), 'Yes', pid))
+                    confirmed = True
+            time.sleep(0.15)
+        raise UIError('Live Save As did not finish; outcome unknown, inspect before retrying')
 
     def click(self, label, expected_text=None):
         try:

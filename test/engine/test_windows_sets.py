@@ -72,6 +72,16 @@ def test_snapshot_selects_exact_executable_not_matching_window_title():
     assert calls == [42]
 
 
+def test_transient_forwarding_process_is_retryable_but_not_selected():
+    W = windows_module()
+    ui, _ = ui_for(W, [Node("Song - Ableton Live 12 Suite")], [
+        {"pid": 42, "name": "Live.exe", "exe": "C:/Apps/Live.exe", "create_time": 3},
+        {"pid": 43, "name": "Live.exe", "exe": "C:/Apps/Live.exe", "create_time": 4},
+    ])
+    with pytest.raises(W.WindowNotReady, match="multiple processes"):
+        ui.snapshot()
+
+
 @pytest.mark.parametrize("case", ["foreign", "denied", "read_error", "duplicate"])
 def test_snapshot_fails_closed(case):
     W = windows_module()
@@ -111,6 +121,19 @@ def test_menu_uses_scoped_patterns_and_exact_label():
     assert file_menu.calls == ["expand"]
     assert save.calls == ["invoke"]
     assert other.calls == []
+
+
+def test_windows_yes_no_save_dialog_uses_native_labels(windows_sets, monkeypatch):
+    W, ui, main, windows = windows_sets
+    dialog = Node('Live', modal=True, children=[Node('Save changes to Song?', 'Text'), Node('Yes', 'Button'), Node('No', 'Button'), Node('Cancel', 'Button')])
+    windows.append(dialog)
+    def click(method, *args, **kwargs):
+        if method == 'snapshot':
+            return ui.snapshot()
+        assert method == 'click' and args == ('No',)
+        windows.remove(dialog)
+    monkeypatch.setattr(S, '_win_call', click)
+    assert S._handle_windows_dialogs('discard', 1) == ['Save changes to Song?']
 
 
 def test_dialog_button_uses_exact_invoke_not_prefix():
@@ -173,6 +196,16 @@ def windows_sets(monkeypatch):
         raise AssertionError("macOS automation used on Windows")
     monkeypatch.setattr(S, "_osa", forbidden)
     return W, ui, main, windows
+
+
+def test_save_clean_known_set_is_idempotent(windows_sets, monkeypatch, tmp_path):
+    W, ui, main, windows = windows_sets
+    main.name = 'Song - Ableton Live 12 Suite'
+    path = tmp_path / 'Song.als'
+    path.write_bytes(b'saved')
+    S._windows_opened = (ui.snapshot().identity, 'Song', str(path))
+    monkeypatch.setattr(S, '_menu', lambda *a: pytest.fail('clean Set has disabled Save menu'))
+    assert S.save() == {'name':'Song', 'path':str(path), 'saved':True, 'unchanged':True}
 
 
 def test_windows_info_reads_normalized_process_scoped_title(windows_sets):
