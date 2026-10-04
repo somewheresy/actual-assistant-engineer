@@ -11,6 +11,7 @@ Host: Windows 11 ARM64. Ableton Live 12.4.6 Trial x64 installed from the officia
 - Bun 1.4.2 x64: `bun test test/models.test.ts test/transport.test.ts test/devtools.test.ts` — **17 passed, 0 failed** on the final rerun. An earlier run hit the endpoint ACL subprocess timeout during heavy installer activity; the isolated failure and complete suite rerun passed. This cold/load sensitivity remains worth monitoring.
 - `bun run typecheck` — exit 0 (uses Bun's own architecture for the TypeScript native compiler wrapper).
 - `hermes plugins validate <plugin directory>` — passed manifest, dependency, capability-registration, declared-tools, collision, and security checks.
+- Installed/enabled the development build in an isolated Hermes home. Actual `hermes assistant-engineer status --probe-vst` successfully dispatched through Hermes and reported Live discovered, control surface installed, VST host ready, bridge not yet selected. The normal user Hermes profile was not modified.
 - Offline VST worker probe — pedalboard 0.9.25 running in an isolated x86_64 Python host under Prism.
 - Isolated x64 UIA imports — pywinauto 0.6.9 and psutil loaded successfully.
 - Actual Live executable and built-in template discovery — correct installed paths, excluding running installers.
