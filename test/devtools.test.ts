@@ -27,8 +27,16 @@ test("openSet delegates missing files safely without shell interpolation", async
   await expect(openSet('missing quote";file.als')).rejects.toThrow("no Set at");
 });
 
-test.skipIf(process.platform === "darwin")("Windows screenshots fail closed without whole-screen fallback", () => {
-  expect(() => screenshotLive("never-created.png")).toThrow("target-window capture");
+test.skipIf(process.platform !== "win32")("Windows screenshots reject missing Live identity without a screen fallback", () => {
+  const root = mkdtempSync(join(tmpdir(), "aae-capture-"));
+  const old = process.env.AAE_LIVE_PATH;
+  try {
+    process.env.AAE_LIVE_PATH = join(root, "missing-live.exe");
+    expect(() => screenshotLive(join(root, "never-created.png"))).toThrow("AAE_LIVE_PATH");
+  } finally {
+    if (old === undefined) delete process.env.AAE_LIVE_PATH; else process.env.AAE_LIVE_PATH = old;
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("discovery uses shipped Live override and verifies built-in template", () => {

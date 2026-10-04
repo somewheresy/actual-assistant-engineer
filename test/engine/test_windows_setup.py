@@ -47,7 +47,8 @@ def test_setup_copies_idempotently_and_preserves_each_backup(tmp_path, monkeypat
     assert report["control_surface_path"] == str(target.resolve())
     assert report["live"] is None
     assert "AAE_LIVE_PATH" in report["live_error"]
-    assert report["native_helpers_supported"] is False
+    assert report["native_helpers_supported"] is True
+    assert report["windows_helpers"]["virtual_midi_source"] is False
 
 
 def test_surface_copy_failure_preserves_existing_install(tmp_path, monkeypatch):

@@ -211,8 +211,9 @@ def _current_path():
     if _is_windows():
         state = _win_call("snapshot")
         if _windows_opened:
-            identity, name, path = _windows_opened
-            if state and state.identity == identity and state.name == name and Path(path).is_file():
+            identity, name, path, *generation = _windows_opened
+            same_generation = not generation or generation[0] == _endpoint_identity()
+            if state and same_generation and state.identity == identity and state.name == name and Path(path).is_file():
                 return path
             _windows_opened = None
         return None
@@ -323,7 +324,7 @@ def _open_windows_impl(path, on_unsaved, timeout):
                 after = _win_call("snapshot")
                 if not after or after.identity != state.identity or after.name != state.name or after.dialogs:
                     raise SetError("Live changed during open verification; inspect Live before retrying")
-                _windows_opened = (state.identity, state.name, str(path))
+                _windows_opened = (state.identity, state.name, str(path), _endpoint_identity())
                 return {"name": path.stem, "path": str(path), "answered": answered, "tracks": res["results"][0].get("tracks")}
         time.sleep(0.1)
     raise SetError("Live did not confirm the requested Set and Hermes bridge in time; inspect Live before retrying")

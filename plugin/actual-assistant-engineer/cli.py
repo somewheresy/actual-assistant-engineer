@@ -152,7 +152,9 @@ def status(args):
         report["live_error"] = str(exc)
     link = remote_scripts(getattr(args, "remote_scripts", None)) / "Hermes"
     report["control_surface_installed"] = (link / "__init__.py").is_file()
-    report["native_helpers_supported"] = sys.platform == "darwin"
+    report["native_helpers_supported"] = sys.platform in ("darwin", "win32")
+    if sys.platform == "win32":
+        report["windows_helpers"] = {"screenshot": "PrintWindow BMP", "midi_output": "explicit WinMM port", "virtual_midi_source": False}
     report["control_surface_path"] = str(link.resolve()) if link.exists() else None
     report["bridge"] = _bridge_ok()
     if report["bridge"]:

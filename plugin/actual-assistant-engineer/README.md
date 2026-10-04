@@ -2,7 +2,7 @@
 
 Hermes operates Ableton Live as your assistant engineer. Ask in plain language — *"make a future beat"*, *"split the kick onto its own track and sidechain everything from it"*, *"automate the filter into the drop"* — and it builds, arranges, processes, mixes, and checks the track in your Live Set. Every musical decision comes from the model your Hermes runs; the plugin gives it hands and checks.
 
-macOS and Windows, Ableton Live 12.4+ (any edition). Windows qualification status and prerequisites: [Windows setup](https://github.com/somewheresy/actual-assistant-engineer/blob/main/docs/windows.md). Step-by-step guide: [Getting started](https://github.com/somewheresy/actual-assistant-engineer/blob/main/docs/getting-started.md).
+macOS and Windows, Ableton Live 12.4+ (any edition). Windows qualification status and prerequisites: [Windows setup](windows.md). Step-by-step guide: [Getting started](https://github.com/somewheresy/actual-assistant-engineer/blob/main/docs/getting-started.md).
 
 ## Install
 
@@ -28,7 +28,7 @@ delegation:
   oneshot_max_children: 4
 ```
 
-Building the optional helpers (MIDI performance port, window screenshots) needs Xcode command line tools; `setup` skips them if `swiftc` is missing.
+macOS's optional Swift helpers need Xcode command line tools. Windows ships stdlib `screenshot`, `midi-ports`, and explicit-port `midi-send` CLI commands; the MIDI loopback driver is a separate prerequisite. See [Windows setup](windows.md).
 
 ## Use
 
