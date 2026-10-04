@@ -22,6 +22,8 @@ def dispatch(request):
     action = request["action"]
     if action in ("bundle", "resources", "default_set"):
         return str(getattr(plugin_module("live_app"), action)())
+    if action == "screenshot":
+        return plugin_module("windows_helpers").screenshot(request["path"], pid=request.get("pid"), hwnd=request.get("hwnd"))
     if action == "open_set":
         return plugin_module("live_sets").open_set(request["path"], request.get("on_unsaved", "cancel"))
     if action == "save_as":

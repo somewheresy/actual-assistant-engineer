@@ -196,8 +196,35 @@ def review(args):
     return 1
 
 
+def windows_helper(args):
+    from . import windows_helpers
+    try:
+        if args.command == "screenshot":
+            result = windows_helpers.screenshot(args.path, pid=args.pid, hwnd=args.hwnd)
+        elif args.command == "midi-ports":
+            result = windows_helpers.midi_ports()
+        else:
+            result = windows_helpers.midi_send(args.message, port=args.port)
+        print(json.dumps(result))
+        return 0
+    except (OSError, ValueError) as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        return 1
+
+
 def configure(parser):
     sub = parser.add_subparsers(dest="command", required=True)
+    shot = sub.add_parser("screenshot", help="Windows: capture only verified Live HWND to a new .bmp path; no desktop fallback")
+    shot.add_argument("path", help="new absolute or relative .bmp output path")
+    shot.add_argument("--pid", type=int)
+    shot.add_argument("--hwnd", type=int)
+    shot.set_defaults(run=windows_helper)
+    ports = sub.add_parser("midi-ports", help="Windows: enumerate WinMM outputs read-only; virtual source needs a separate loopback driver")
+    ports.set_defaults(run=windows_helper)
+    midi = sub.add_parser("midi-send", help="Windows: send one short hex message to an explicit output; never selects a default synth")
+    midi.add_argument("message", help="quoted hex bytes, e.g. '90 3c 00'; no SysEx")
+    midi.add_argument("--port", help="exact output name (or AAE_MIDI_PORT); duplicate names rejected")
+    midi.set_defaults(run=windows_helper)
     s = sub.add_parser("setup", help="install the Live control surface and build optional helpers")
     s.add_argument("--remote-scripts", help="Live's Remote Scripts folder (default: User Library)")
     s.add_argument("--no-native", action="store_true", help="skip building the Swift helpers")
