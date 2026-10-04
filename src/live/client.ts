@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { closeSync, lstatSync, openSync, readSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { Socket } from "bun";
 
 export const SOCK_PATH = join(homedir(), "Library/Application Support/ActualAssistantEngineer/live.sock");
@@ -66,7 +66,7 @@ export type OpResult = { ok: boolean; error?: string } & Record<string, unknown>
 export type BatchResponse = { id: number; ok: boolean; results: OpResult[]; exec_ms: number };
 export type LiveEvent = { event: true; kind: string; t: number } & Record<string, unknown>;
 
-type Pending = { resolve: (r: BatchResponse) => void; reject: (e: Error) => void; timer: Timer };
+type Pending = { resolve: (r: BatchResponse) => void; reject: (e: Error) => void; timer: Timer; handshake: boolean };
 
 /** Connection to the Hermes control surface running inside Live. */
 export class LiveClient {
@@ -104,7 +104,15 @@ export class LiveClient {
         : Bun.connect({ hostname: endpoint.hostname, port: endpoint.port, socket: handlers }));
       if (generation !== this.generation) { socket.terminate(); throw new Error("Live disconnected before request; nothing sent"); }
       this.socket = socket;
+      if (this.token) {
+        const nonce = randomBytes(32).toString("hex");
+        const reply = await this.request({ hello: nonce }, 1000, true) as BatchResponse & { hello?: string };
+        if (reply.ok !== true || reply.hello !== nonce) throw new Error("invalid Live handshake; no request sent");
+      }
       return this;
+    } catch (error) {
+      if (generation === this.generation) this.closed("Live authentication failed; no request sent");
+      throw error;
     } finally { this.connecting = false; }
   }
 
@@ -133,9 +141,9 @@ export class LiveClient {
     this.closed("Live connection closed");
   }
 
-  private request(body: Record<string, unknown>, timeoutMs: number): Promise<BatchResponse> {
+  private request(body: Record<string, unknown>, timeoutMs: number, handshake = false): Promise<BatchResponse> {
     const socket = this.socket;
-    if (!socket) return Promise.reject(new Error("not connected"));
+    if (!socket || (this.connecting && !handshake)) return Promise.reject(new Error("not connected"));
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return Promise.reject(new Error("timeout must be positive; nothing sent"));
     const id = this.nextId++;
     let frame: Buffer;
@@ -153,7 +161,7 @@ export class LiveClient {
         // drain callback or replay it on reconnect. Sent mutations may execute.
         this.closed(`request ${id} timed out after ${timeoutMs}ms`);
       }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, { resolve, reject, timer, handshake });
       this.outbuf = Buffer.concat([this.outbuf, frame]);
       this.flush();
     });
@@ -185,7 +193,7 @@ export class LiveClient {
           msg = JSON.parse(msg.body);
         }
         if (!msg || typeof msg !== "object" || Array.isArray(msg)) throw new Error("invalid response");
-        if (msg.event) { this.onEvent?.(msg); continue; }
+        if (msg.event) { if (!this.connecting) this.onEvent?.(msg); continue; }
         const p = this.pending.get(msg.id);
         if (!p) continue;
         clearTimeout(p.timer);
@@ -210,7 +218,7 @@ export class LiveClient {
     socket?.terminate();
     for (const p of this.pending.values()) {
       clearTimeout(p.timer);
-      p.reject(new Error(`${reason}; outcome unknown, inspect before retrying`));
+      p.reject(new Error(p.handshake ? `${reason}; no request sent` : `${reason}; outcome unknown, inspect before retrying`));
     }
     this.pending.clear();
     this.onClose?.();

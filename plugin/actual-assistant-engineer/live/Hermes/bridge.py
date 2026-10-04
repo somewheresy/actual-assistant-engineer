@@ -140,6 +140,10 @@ class Hermes(ControlSurface):
         client.authenticated = True
         rid = req.get("id")
 
+        if self._listener.token is not None and "hello" in req:
+            # Authenticate a small frame before a large batch spans UI ticks.
+            # Echo a signed fresh challenge; never dispatch handshake contents.
+            return {"id": rid, "ok": True, "hello": req["hello"]}
         if req.get("subscribe"):
             client.subscribed = True
             return {"id": rid, "ok": True, "subscribed": True}

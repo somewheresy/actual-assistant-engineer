@@ -2,6 +2,7 @@
 
 import importlib.util
 import itertools
+import secrets
 import socket
 import time
 from pathlib import Path
@@ -61,6 +62,33 @@ def batch(ops, timeout=30.0, undo_step=True):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise LiveUnavailable("Live connection deadline expired; nothing sent")
+        if token is not None:
+            # Prove the peer owns the endpoint key before sending any ops. The
+            # fresh challenge also rejects replayed handshake acknowledgements.
+            nonce = secrets.token_hex(32)
+            try:
+                s.settimeout(remaining)
+                s.sendall(transport.encode_message({"id": rid, "hello": nonce}, token))
+                hello = b""
+                while b"\n" not in hello:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("Live handshake deadline expired")
+                    s.settimeout(remaining)
+                    chunk = s.recv(4097 - len(hello))
+                    if not chunk:
+                        raise ConnectionError("Live closed the handshake")
+                    hello += chunk
+                    if len(hello) > 4096:
+                        raise ValueError("Live handshake exceeds frame limit")
+                reply = transport.decode_message(hello.split(b"\n", 1)[0], token, "response")
+                if reply.get("id") != rid or reply.get("ok") is not True or reply.get("hello") != nonce:
+                    raise ValueError("invalid Live handshake")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("Live handshake deadline expired")
+            except (OSError, ValueError) as e:
+                raise LiveUnavailable("Live authentication failed; no request sent") from e
         try:
             s.settimeout(remaining)
             s.sendall(payload)

@@ -1,5 +1,7 @@
 """Real bridge integration peer for Bun tests; only Live's API is faked."""
 import sys
+import json
+import socket
 import time
 from pathlib import Path
 
@@ -22,12 +24,46 @@ surface._open_server(sys.argv[1])
 print(surface._listener.path, flush=True)
 try:
     mode = sys.argv[2] if len(sys.argv) > 2 else "bridge"
-    if mode != "bridge":
+    if mode not in ("bridge", "paced"):
         surface._server.settimeout(5)
         conn, _ = surface._server.accept()
         with conn:
             conn.settimeout(5)
             raw = b""
+            if surface._listener.token is not None:
+                while b"\n" not in raw:
+                    part = conn.recv(4096)
+                    assert part, "client closed before handshake"
+                    raw += part
+                hello = bridge.transport.decode_message(raw, surface._listener.token)
+                assert set(hello) == {"id", "hello"}, "request sent before authentication"
+                assert len(hello["hello"]) == 64 and len(raw) < 512
+                assert raw.count(b"\n") == 1 and raw.endswith(b"\n")
+                reply = {**hello, "ok": True}
+                if mode.startswith("handshake_"):
+                    if mode == "handshake_forged":
+                        conn.sendall(json.dumps(reply).encode() + b"\n")
+                    elif mode == "handshake_reflection":
+                        conn.sendall(raw)
+                    elif mode == "handshake_wrong_nonce":
+                        reply["hello"] = "00" * 32
+                        conn.sendall(bridge.transport.encode_message(reply, surface._listener.token, "response"))
+                    elif mode == "handshake_timeout":
+                        time.sleep(1.2)
+                    elif mode == "handshake_eof":
+                        conn.shutdown(socket.SHUT_WR)
+                    try:
+                        extra = conn.recv(4096)
+                    except ConnectionResetError:
+                        extra = b""
+                    capture = Path(sys.argv[1]).parent.joinpath("capture.tmp")
+                    capture.write_text(json.dumps({
+                        "hello": hello, "extra": len(extra), "token_leaked": surface._listener.token.encode() in raw,
+                    }))
+                    capture.replace(capture.with_suffix(".json"))
+                else:
+                    conn.sendall(bridge.transport.encode_message(reply, surface._listener.token, "response"))
+                    raw = b""
             if mode == "backpressure":
                 raw = conn.recv(4096)
                 time.sleep(.5)
@@ -61,7 +97,7 @@ try:
         surface._server.setblocking(False)
     while True:
         surface._poll()
-        time.sleep(.001)
+        time.sleep(.1 if mode == "paced" else .001)
 finally:
     for client in list(surface._clients):
         surface._drop(client)

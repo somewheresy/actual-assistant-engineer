@@ -1,10 +1,21 @@
 import { test, expect } from "bun:test";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { once } from "node:events";
 import { LiveClient, readEndpoint } from "../src/live/client";
+
+test.skipIf(process.platform !== "win32")("large first batch survives 100ms Live display ticks", async () => {
+  const server = await peer("paced");
+  const client = new LiveClient(server.endpoint);
+  try {
+    await client.connect();
+    const result = await client.batch([{ op: "set_identity", set_id: "x".repeat(48 * 1024 * 1024) }], { timeoutMs: 15000 });
+    expect(result.ok).toBe(true);
+    expect((result.results[0]?.set_id as string).length).toBe(48 * 1024 * 1024);
+  } finally { client.close(); await server.stop(); }
+}, 20000);
 
 async function peer(mode = "bridge") {
   const root = mkdtempSync(join(process.env.TMPDIR || tmpdir(), "aae-transport-"));
@@ -22,6 +33,12 @@ async function peer(mode = "bridge") {
   });
   return {
     endpoint,
+    async capture() {
+      const path = join(root, "capture.json");
+      const deadline = Date.now() + 2000;
+      while (!existsSync(path) && Date.now() < deadline) await Bun.sleep(10);
+      return JSON.parse(readFileSync(path, "utf8"));
+    },
     async stop() { const exited = once(child, "exit"); child.kill(); await exited; rmSync(root, { recursive: true, force: true }); },
   };
 }
@@ -46,8 +63,26 @@ for (const mode of ["eof", "malformed", "oversize", "timeout", "forged", "reflec
     const client = new LiveClient(server.endpoint, 2048);
     try {
       await client.connect();
-      await expect(client.batch([{ op: "ping" }], { timeoutMs: 100 })).rejects.toThrow(/outcome unknown.*inspect before retrying/);
+      await expect(client.batch([{ op: "transport", tempo: 99 }], { timeoutMs: 100 })).rejects.toThrow(/outcome unknown.*inspect before retrying/);
       await expect(client.batch([{ op: "ping" }])).rejects.toThrow(/not connected/);
+      await client.connect();
+      expect((await client.batch([{ op: "ping" }])).ok).toBe(true);
+    } finally { client.close(); await server.stop(); }
+  }, 15000);
+}
+
+for (const mode of ["forged", "reflection", "wrong_nonce", "eof", "timeout"]) {
+  test.skipIf(process.platform !== "win32")(`failed ${mode} handshake sends no mutation and allows reconnect`, async () => {
+    const server = await peer(`handshake_${mode}`);
+    const client = new LiveClient(server.endpoint);
+    try {
+      const connecting = client.connect();
+      await expect(client.batch([{ op: "transport", tempo: 99 }])).rejects.toThrow("not connected");
+      await expect(connecting).rejects.toThrow(/no request sent/);
+      const captured = await server.capture();
+      expect(Object.keys(captured.hello).sort()).toEqual(["hello", "id"]);
+      expect(captured.extra).toBe(0);
+      expect(captured.token_leaked).toBe(false);
       await client.connect();
       expect((await client.batch([{ op: "ping" }])).ok).toBe(true);
     } finally { client.close(); await server.stop(); }
@@ -94,7 +129,7 @@ test("TypeScript discards a real backpressured partial write on timeout and reco
   const client = new LiveClient(server.endpoint);
   try {
     await client.connect();
-    await expect(client.batch([{ op: "ping", padding: "x".repeat(8 * 1024 * 1024) }], { timeoutMs: 50 }))
+    await expect(client.batch([{ op: "set_identity", set_id: "x".repeat(8 * 1024 * 1024) }], { timeoutMs: 50 }))
       .rejects.toThrow(/outcome unknown.*inspect before retrying/);
     await client.connect();
     expect((await client.batch([{ op: "ping" }])).ok).toBe(true);

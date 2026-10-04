@@ -42,6 +42,21 @@ def connect_peer(surface):
     return peer
 
 
+def accept_handshake(conn, transport, token):
+    if token is None:
+        return  # Unix peers still receive the original request first.
+    raw = b""
+    while b"\n" not in raw:
+        part = conn.recv(4096)
+        assert part, "client closed before handshake"
+        raw += part
+    assert raw.count(b"\n") == 1 and raw.endswith(b"\n"), "request sent before authentication"
+    hello = transport.decode_message(raw, token)
+    assert set(hello) == {"id", "hello"}
+    assert len(hello["hello"]) == 64
+    conn.sendall(transport.encode_message(dict(hello, ok=True), token, "response"))
+
+
 def exchange(surface, peer, request):
     # No token means an unauthenticated raw request, deliberately exercising rejection.
     token = request.pop("token", None)
@@ -110,10 +125,36 @@ def test_python_client_authenticated_batch_over_real_transport(tmp_path, ctx, mo
         close_surface(surface)
 
 
-@pytest.mark.parametrize("failure", ["eof", "malformed", "oversize", "trickle"])
+@pytest.mark.skipif(os.name != "nt", reason="Windows authentication deadline")
+def test_large_first_batch_survives_real_display_tick_pacing(tmp_path, ctx, monkeypatch):
+    import concurrent.futures
+    import time
+    directory = tmp_path / "private"
+    surface = make_surface(directory, ctx)
+    client = load_client(directory, monkeypatch)
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            start = time.monotonic()
+            payload = "x" * (48 * 1024 * 1024)
+            result = pool.submit(client.batch, [{"op": "set_identity", "set_id": payload}], timeout=15)
+            while not result.done() and time.monotonic() - start < 15:
+                surface._poll()
+                # Live's actual display cadence, not the usual 1ms test pump.
+                time.sleep(.1)
+            response = result.result(timeout=1)
+        assert response["ok"]
+        assert ctx.song.get_data("assistant-engineer.set_id", None) == payload
+        assert time.monotonic() - start > 1.0
+    finally:
+        close_surface(surface)
+
+
+@pytest.mark.parametrize("failure", ["eof", "malformed", "oversize", "trickle", "forged", "reflection"])
 def test_python_post_send_failures_report_unknown_outcome(tmp_path, monkeypatch, failure):
     import concurrent.futures
     import time
+    if os.name != "nt" and failure in ("forged", "reflection"):
+        pytest.skip("Windows authenticated response")
     transport = load_transport()
     directory = tmp_path / "private"
     listener = transport.Listener(str(directory))
@@ -125,11 +166,17 @@ def test_python_post_send_failures_report_unknown_outcome(tmp_path, monkeypatch,
         conn, _ = listener.socket.accept()
         with conn:
             conn.settimeout(1)
+            accept_handshake(conn, transport, listener.token)
             buf = b""
             while b"\n" not in buf:
                 buf += conn.recv(4096)
             if failure == "malformed":
                 conn.sendall(b"not json\n")
+            elif failure == "forged":
+                request = transport.decode_message(buf, listener.token)
+                conn.sendall(json.dumps({"id": request["id"], "ok": True}).encode() + b"\n")
+            elif failure == "reflection":
+                conn.sendall(buf)
             elif failure == "oversize":
                 conn.sendall(b"x" * 1025)
             elif failure == "trickle":
@@ -143,8 +190,8 @@ def test_python_post_send_failures_report_unknown_outcome(tmp_path, monkeypatch,
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             job = pool.submit(serve)
             start = time.monotonic()
-            with pytest.raises(Exception, match="outcome unknown.*inspect before retrying"):
-                client.batch([{"op": "ping"}], timeout=.08)
+            with pytest.raises(client.LiveOutcomeUnknown, match="outcome unknown.*inspect before retrying"):
+                client.batch([{"op": "transport", "tempo": 99}], timeout=.08)
             elapsed = time.monotonic() - start
             job.result(timeout=2)
             if failure == "trickle":
@@ -154,8 +201,10 @@ def test_python_post_send_failures_report_unknown_outcome(tmp_path, monkeypatch,
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows authenticated response")
-def test_stale_port_impersonator_cannot_learn_token_or_forge_response(tmp_path, monkeypatch):
+@pytest.mark.parametrize("failure", ["forged", "reflection", "wrong_nonce", "eof", "trickle", "oversize"])
+def test_stale_port_impersonator_gets_no_mutation_body(tmp_path, monkeypatch, failure):
     import concurrent.futures
+    import time
     transport = load_transport()
     directory = tmp_path / "private"
     listener = transport.Listener(str(directory))
@@ -166,35 +215,75 @@ def test_stale_port_impersonator_cannot_learn_token_or_forge_response(tmp_path, 
     def impersonate():
         conn, _ = listener.socket.accept()
         with conn:
+            conn.settimeout(1)
             raw = b""
             while b"\n" not in raw:
                 raw += conn.recv(4096)
             captured.append(raw)
             req = json.loads(raw)
             body = json.loads(req["body"]) if "body" in req else req
-            conn.sendall(json.dumps({"id": body["id"], "ok": True, "results": []}).encode() + b"\n")
+            if failure == "forged":
+                conn.sendall(json.dumps(dict(body, ok=True)).encode() + b"\n")
+            elif failure == "reflection":
+                conn.sendall(raw)
+            elif failure == "wrong_nonce":
+                conn.sendall(transport.encode_message(dict(body, ok=True, hello="00" * 32), listener.token, "response"))
+            elif failure == "oversize":
+                conn.sendall(b"x" * 4097)
+            elif failure == "trickle":
+                for _ in range(30):
+                    try:
+                        conn.sendall(b" ")
+                    except OSError:
+                        break
+                    time.sleep(.01)
+            if failure != "eof":
+                try:
+                    captured.append(conn.recv(4096))
+                except (ConnectionResetError, ConnectionAbortedError):
+                    pass
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             job = pool.submit(impersonate)
-            with pytest.raises(client.LiveOutcomeUnknown):
-                client.batch([{"op": "ping"}], timeout=1)
+            start = time.monotonic()
+            with pytest.raises(client.LiveUnavailable, match="no request sent"):
+                client.batch([{"op": "transport", "tempo": 99}], timeout=.15)
+            if failure == "trickle":
+                assert time.monotonic() - start < .3
             job.result(timeout=2)
         assert listener.token.encode() not in captured[0], "capability must never travel on wire"
+        hello = json.loads(json.loads(captured[0])["body"])
+        assert set(hello) == {"id", "hello"}
+        assert len(captured[0]) < 512
+        assert not b"".join(captured[1:]), "mutation leaked after failed handshake"
     finally:
         listener.close()
 
 
 def test_python_partial_send_timeout_reports_unknown_outcome(tmp_path, monkeypatch):
+    import concurrent.futures
+    import time
     transport = load_transport()
     directory = tmp_path / "private"
     listener = transport.Listener(str(directory))
     listener.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+    listener.socket.settimeout(2)
     client = load_client(directory, monkeypatch)
+
+    def serve():
+        conn, _ = listener.socket.accept()
+        with conn:
+            conn.settimeout(1)
+            accept_handshake(conn, transport, listener.token)
+            # Authenticate first, then leave mutation bytes unread.
+            time.sleep(.8)
+
     try:
-        # Real connection, intentionally unread: enough bytes to fill OS send
-        # buffers. This fails within sendall, not while awaiting a response.
-        with pytest.raises(client.LiveOutcomeUnknown, match="outcome unknown"):
-            client.batch([{"op": "ping", "padding": "x" * (2 * 1024 * 1024)}], timeout=.5)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            job = pool.submit(serve)
+            with pytest.raises(client.LiveOutcomeUnknown, match="outcome unknown"):
+                client.batch([{"op": "set_identity", "set_id": "x" * (8 * 1024 * 1024)}], timeout=.5)
+            job.result(timeout=2)
     finally:
         listener.close()
 
