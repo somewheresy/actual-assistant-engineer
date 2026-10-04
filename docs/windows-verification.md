@@ -6,9 +6,9 @@ Verified scope and remaining external prerequisites for this Windows build.
 
 Host: Windows 11 ARM64. Ableton Live 12.4.6 Trial x64 installed from the official Ableton CDN; installer Authenticode signature was valid and identified Ableton AG. The installer reported success and requested a restart; no automatic restart was performed.
 
-- Python 3.11: `uv run --python 3.11 --with pytest python -m pytest -q test/bridge test/engine` — **183 passed, 2 skipped**.
-- Native ARM64 Python 3.14: same suites — **183 passed, 2 skipped**. Skips are platform-specific, not substitutes for actual Live tests.
-- Bun 1.4.2 x64: `bun test test/models.test.ts test/transport.test.ts test/devtools.test.ts` — **17 passed, 0 failed** on the final rerun. An earlier run hit the endpoint ACL subprocess timeout during heavy installer activity; the isolated failure and complete suite rerun passed. This cold/load sensitivity remains worth monitoring.
+- Python 3.11: `uv run --python 3.11 --with pytest python -m pytest -q test/bridge test/engine` — **191 passed, 2 skipped**.
+- Native ARM64 Python 3.14: same suites — **191 passed, 2 skipped**. Skips are platform-specific, not substitutes for actual Live tests.
+- Bun 1.4.2 x64: `bun test test/models.test.ts test/transport.test.ts test/devtools.test.ts` — **23 passed, 0 failed** on the final rerun. An earlier run hit the endpoint ACL subprocess timeout during heavy installer activity; the isolated failure and complete suite rerun passed. This cold/load sensitivity remains worth monitoring.
 - `bun run typecheck` — exit 0 (uses Bun's own architecture for the TypeScript native compiler wrapper).
 - `hermes plugins validate <plugin directory>` — passed manifest, dependency, capability-registration, declared-tools, collision, and security checks.
 - First installed/enabled in an isolated Hermes home. After live qualification, installed/enabled the verified build in the default Hermes profile. Actual `hermes assistant-engineer status --probe-vst` reports the Live 12.4.6 bridge connected, control surface installed, Windows helpers supported, and x64 VST host ready. Tools and prompt additions become available in a new session.
@@ -19,6 +19,10 @@ Host: Windows 11 ARM64. Ableton Live 12.4.6 Trial x64 installed from the officia
 - Control surface copied into the user's Live User Library and verified byte-for-byte against the source Python files.
 
 The transport suite uses real Windows sockets/ACLs and both Python and TypeScript clients; only the Live object model is faked. It covers authentication, malformed/forged responses, partial frames, backpressure, stale/unsafe discovery, lock ownership, unknown-outcome errors, and bounded unauthenticated connection retention.
+
+## Pre-publication transport regression
+
+Independent review identified a valid large first frame exceeding the one-second unauthenticated deadline at the bridge's bounded receive cadence. Both Windows clients now complete a small signed fresh-challenge handshake and validate its response before sending operations. The deadline remains unchanged; Unix wire behavior is unchanged. Real paced loopback tests reproduce the old failure and pass with the fix, including wrong-nonce, reflected/forged handshake, timeout/EOF, and no-mutation-body-leak cases. These final tests are transport tests, distinct from the real Live qualification below.
 
 ## Real Live qualification completed
 
