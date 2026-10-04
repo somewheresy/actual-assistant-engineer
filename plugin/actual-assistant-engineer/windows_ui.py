@@ -114,6 +114,10 @@ class LiveUI:
         dialogs = []
         for w in [w for w in windows if w is not window] + nested:
             self._scope(w, process["pid"])
+            # Live reports its floating VST3 editor host as modal, even though it
+            # is not a blocking Set dialog. Vendor child dialogs remain visible.
+            if getattr(w, 'class_name', lambda: '')() == 'Vst3PlugWindow':
+                continue
             children = [n for n in w.descendants() if n.is_visible()]
             for child in children:
                 self._scope(child, process["pid"])

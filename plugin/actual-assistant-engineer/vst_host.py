@@ -20,8 +20,8 @@ import struct
 from pathlib import Path
 
 
-def binary_architecture(path):
-    """Read PE machine type, including VST3 bundles, without loading native code."""
+def windows_binary(path):
+    """Resolve the module inside a standard Windows VST3 bundle."""
     path = Path(path)
     if path.is_dir():
         binaries = sorted(path.glob("Contents/*-win/*.vst3"))
@@ -30,6 +30,12 @@ def binary_architecture(path):
         if not binaries:
             raise ValueError("no Windows PE binary found in VST3 bundle: %s" % path)
         path = binaries[0]
+    return path
+
+
+def binary_architecture(path):
+    """Read PE machine type without loading native code."""
+    path = windows_binary(path)
     with path.open("rb") as stream:
         header = stream.read(64)
         if len(header) != 64 or header[:2] != b"MZ":
@@ -48,7 +54,22 @@ def binary_architecture(path):
 def load(path, name):
     import pedalboard
 
+    if sys.platform == "win32":
+        path = str(windows_binary(path))
     return pedalboard.load_plugin(path, plugin_name=name) if name else pedalboard.load_plugin(path)
+
+
+def flush_state(plugin):
+    """Apply queued VST3 processor changes before serializing state.
+
+    Processing is offline/in-memory only; no audio device is opened or MIDI note
+    sent. Some processors keep old values in raw_state until a process block.
+    """
+    if plugin.is_instrument:
+        plugin.process([], duration=0.01, sample_rate=44100, num_channels=2, reset=False)
+    else:
+        import numpy as np
+        plugin.process(np.zeros((2, 64), dtype=np.float32), sample_rate=44100, reset=False)
 
 
 def vst3_blobs(raw):
@@ -118,6 +139,8 @@ def main():
         k, v = kv.split("=", 1)
         param = p.parameters[k]
         param.raw_value = float(v)
+    if a.set or a.preset:
+        flush_state(p)
     proc, ctrl = vst3_blobs(p.raw_state)
     if not proc:
         raise SystemExit("could not extract VST3 component state from the host's state")

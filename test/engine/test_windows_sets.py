@@ -100,6 +100,14 @@ def test_snapshot_fails_closed(case):
         ui.snapshot()
 
 
+def test_vst_editor_window_is_not_a_save_prompt():
+    W = windows_module()
+    plugin = Node('Effect/Track', modal=True, children=[Node('Close', 'Button')])
+    plugin.class_name = lambda: 'Vst3PlugWindow'
+    ui, _ = ui_for(W, [Node('Song - Ableton Live 12 Suite'), plugin])
+    assert ui.snapshot().dialogs == ()
+
+
 def test_snapshot_reads_modal_text_and_does_not_hide_unknown_windows():
     W = windows_module()
     alert = Node("Ableton Live", modal=True, children=[Node("Save changes to Song?", "Text"), Node("Cancel", "Button")])

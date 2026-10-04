@@ -237,4 +237,19 @@ def load_state(track, device, preset=None, values=None, bundle_plugin=None):
         args += ["--set", "%s=%s" % (p["key"], v)]
     blobs = _host(*args, plugin=plugin)
     _edit_set(track, i, lambda dev: P.set_state(dev, blobs["processor_hex"], blobs["controller_hex"]))
-    return {"device": plugin, "loaded": preset or "parameter values", "bytes": len(blobs["processor_hex"]) // 2}
+    verified = {}
+    if values:
+        after = _bridge({"op": "device_params", "track": track, "device": i})
+        available = {p["name"].casefold(): p for p in after.get("params", [])}
+        for name, expected in values.items():
+            param = available.get(name.casefold())
+            if param is None:
+                raise VstError("state applied, but read-back is unavailable for %r; expose it and inspect before retrying" % name)
+            lo, hi = param.get("min", 0), param.get("max", 1)
+            actual = (param["value"] - lo) / (hi - lo) if hi != lo else param["value"]
+            if abs(actual - float(expected)) > 1e-5:
+                raise VstError("state applied, but read-back for %r is %s, expected %s; inspect before retrying" % (name, actual, expected))
+            verified[name] = actual
+    return {"device": plugin, "loaded": preset or "parameter values", "bytes": len(blobs["processor_hex"]) // 2,
+            "verified_parameters": verified,
+            "verification": "requested values read back from Live" if values else "preset state reopened; no expected values supplied for read-back"}
