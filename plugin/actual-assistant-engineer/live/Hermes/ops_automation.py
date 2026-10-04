@@ -183,5 +183,5 @@ def _param_info(ctx, track, target, values=(), expect=None):
         "automation_state": getattr(p, "automation_state", None),
         "device_index": device_index,
         "lom_names": names,
-        "is_volume": p is t.mixer_device.volume,
+        "is_volume": target == "volume",  # Live can return a fresh proxy on each property access.
     }

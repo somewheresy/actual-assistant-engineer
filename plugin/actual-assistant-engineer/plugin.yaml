@@ -1,5 +1,5 @@
 name: actual-assistant-engineer
-version: 0.2.0
+version: 0.3.0
 manifest_version: 2
 description: >-
   Operate Ableton Live as an assistant engineer: create and save Sets, build any instrument or
@@ -9,10 +9,12 @@ author: Actual Computer
 homepage: https://github.com/somewheresy/actual-assistant-engineer
 license: Apache-2.0
 tags: [music, ableton, daw, audio, production]
-platforms: [macos]
+platforms: [macos, windows]
 requires_hermes: ">=0.21"
 python_dependencies:
-  - "pedalboard>=0.9,<1"
+  - "pedalboard>=0.9,<1; sys_platform != 'win32'"
+  - "pywinauto>=0.6.9,<0.7; sys_platform == 'win32' and platform_machine == 'AMD64'"
+  - "psutil>=5.9; sys_platform == 'win32' and platform_machine == 'AMD64'"
 provides_tools:
   - live_set
   - live_vst

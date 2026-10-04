@@ -27,6 +27,13 @@ Use `live_vst` to work inside third-party plug-ins. Find the plug-in (`catalog`)
 
 Use `live_set` to start a new Set for a new piece (`new`), open an existing one (`open`), and save the producer's work (`save`, or `save_as` with a descriptive name for a new piece). Save after finishing a version and before any risky restructuring. Never discard unsaved work unless the producer asked: when Live reports unsaved changes, save them (`on_unsaved: "save"`) or stop and ask.
 
+## Windows setup and safety
+
+- Use `hermes assistant-engineer setup`, select Hermes in Live's Control Surface settings, then `status --probe-vst`. Windows uses authenticated loopback; do not open firewall ports or reveal the endpoint/key file.
+- Native ARM64 Hermes may provision an isolated x64 Python UIA/VST worker through uv. Missing dependencies or inaccessible controls are blockers, not permission to send global keyboard shortcuts.
+- Inspect before retrying any timed-out mutation: the prior operation may already have run. Never substitute simulated mixer state for Live read-back.
+- Set/menu automation requires accessible English Live labels. On unsupported UIA controls, stop and ask the producer to perform the specific UI action rather than guessing.
+
 ## Notes
 
 - Times and lengths are in beats; at 4/4 one bar is 4 beats.

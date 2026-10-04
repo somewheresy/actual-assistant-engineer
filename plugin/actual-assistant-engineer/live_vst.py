@@ -8,6 +8,7 @@ Layers, cheapest first:
 Driving a plug-in's own window (vendor-format presets, custom pages) is computer use.
 """
 
+import hashlib
 import json
 import os
 import subprocess
@@ -15,15 +16,15 @@ from pathlib import Path
 
 from . import als_automation as A
 from . import als_plugins as P
-from . import live_client, live_sets
+from . import live_client, live_sets, platform_paths
 
 HOST = Path(__file__).with_name("vst_host.py")
-VST3_DIRS = [Path("/Library/Audio/Plug-Ins/VST3"), Path.home() / "Library/Audio/Plug-Ins/VST3"]
-PRESET_DIRS = [Path("/Library/Audio/Presets"), Path.home() / "Library/Audio/Presets", Path.home() / "Documents"]
+VST3_DIRS = None  # optional override; defaults are resolved at call time
+PRESET_DIRS = None
 LOADABLE = {".vstpreset"}  # the standard VST3 preset format; vendor formats need the plug-in's own browser
 NOT_PRESETS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".pdf", ".txt", ".md", ".rtf", ".html", ".json", ".xml", ".plist", ".db",
                ".wav", ".aif", ".aiff", ".mp3", ".flac", ".ogg", ".m4a", ".zip", ".dmg", ".pkg", ".app", ".log", ".ds_store", ""}
-CACHE = Path.home() / "Library/Caches/ActualAssistantEngineer/vst"
+CACHE = None
 
 
 class VstError(Exception):
@@ -31,13 +32,20 @@ class VstError(Exception):
 
 
 def catalog(query=None):
-    out = []
-    for d in VST3_DIRS:
-        if d.exists():
-            for p in sorted(d.glob("*.vst3")):
-                if not query or query.lower() in p.stem.lower():
+    out, seen = [], set()
+    for base in VST3_DIRS if VST3_DIRS is not None else platform_paths.vst3_dirs():
+        for root, dirs, files in os.walk(base):
+            for name in sorted(dirs + files):
+                p = Path(root) / name
+                if p.suffix.lower() != ".vst3":
+                    continue
+                if name in dirs:
+                    dirs.remove(name)  # never index a bundle's internal binary twice
+                key = os.path.normcase(str(p.resolve()))
+                if key not in seen and (not query or query.lower() in p.stem.lower()):
+                    seen.add(key)
                     out.append({"name": p.stem, "path": str(p)})
-    return out
+    return sorted(out, key=lambda p: (p["name"].lower(), p["path"]))
 
 
 def _key(name):
@@ -52,27 +60,41 @@ def _bundle(plugin):
     return hits[0]["path"]
 
 
-def _python():
-    """The interpreter that has pedalboard: the plugin's own environment (declared dependency),
-    else uv with an ephemeral pedalboard."""
+def _python(bundle=None):
+    """Select a host matching the plug-in binary, not the OS or Hermes architecture."""
     import importlib.util
     import shutil
     import sys
+    from .vst_host import binary_architecture
 
-    if importlib.util.find_spec("pedalboard") is not None:
+    target = None
+    compatible = True
+    if sys.platform == "win32":
+        try:
+            current = binary_architecture(sys.executable)
+            target = binary_architecture(bundle) if bundle else "x86_64"
+        except (OSError, ValueError) as exc:
+            raise VstError(str(exc)) from exc
+        compatible = target == current
+    if compatible and importlib.util.find_spec("pedalboard") is not None:
         return [sys.executable]
-    if shutil.which("uv"):
-        return ["uv", "run", "-q", "--with", "pedalboard", "python"]
-    raise VstError("the offline plug-in host needs pedalboard: reinstall the plugin's dependencies (hermes plugins install --yes-deps) or install uv")
+    uv = shutil.which("uv")
+    if uv:
+        python = "cpython-3.11-windows-%s-none" % target if target else "3.11"
+        return [uv, "run", "-q", "--no-project", "--isolated", "--python", python, "--with", "pedalboard", "python"]
+    raise VstError("offline VST host needs %s Python with pedalboard; install uv to provision a compatible host (Windows ARM64 can run an x86_64 host under Prism)" % (target or "compatible"))
 
 
 def _host(*args, plugin=None, timeout=180):
     """Run the offline host. Bundles holding several plug-ins need one named: retry with the
     plug-in's own name when the host says so."""
-    cmd = [*_python(), str(HOST), *args]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    if r.returncode != 0 and "contains" in r.stderr and "plugin_name" in r.stderr and plugin and "--plugin" not in args:
-        r = subprocess.run(cmd + ["--plugin", plugin], capture_output=True, text=True, timeout=timeout)
+    cmd = [*_python(args[1] if len(args) > 1 else None), str(HOST), *args]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", timeout=timeout)
+        if r.returncode != 0 and "contains" in r.stderr and "plugin_name" in r.stderr and plugin and "--plugin" not in args:
+            r = subprocess.run(cmd + ["--plugin", plugin], capture_output=True, text=True, encoding="utf-8", timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise VstError("offline VST host timed out; the plug-in may require licensing or a visible UI") from exc
     if r.returncode != 0:
         msg = (r.stderr or r.stdout).strip().splitlines()
         raise VstError(" ".join(msg[-4:]) or "plug-in host failed")
@@ -81,8 +103,11 @@ def _host(*args, plugin=None, timeout=180):
 
 def params(plugin, query=None, bundle_plugin=None, limit=60):
     """All of a plug-in's parameters (cached per plug-in), optionally filtered by name."""
-    CACHE.mkdir(parents=True, exist_ok=True)
-    key = CACHE / ("%s.json" % (bundle_plugin or plugin).replace("/", "_"))
+    cache = CACHE if CACHE is not None else platform_paths.data_dir() / "cache/vst"
+    cache.mkdir(parents=True, exist_ok=True)
+    bundle = Path(_bundle(plugin))
+    identity = json.dumps([str(bundle.resolve()), bundle.stat().st_mtime_ns, bundle_plugin or plugin])
+    key = cache / (hashlib.sha256(identity.encode("utf-8")).hexdigest() + ".json")
     if key.exists():
         data = json.loads(key.read_text())
     else:
@@ -92,14 +117,14 @@ def params(plugin, query=None, bundle_plugin=None, limit=60):
     if query:
         terms = query.lower().split()
         data = [p for p in data if all(t in p["name"].lower() for t in terms)]
-    return {"plugin": bundle_plugin or plugin, "count": len(data), "params": data[:limit]}
+    return {"plugin": bundle_plugin or plugin, "count": len(data), "params": data[:limit] if limit else data}
 
 
 def presets(plugin, query=None, limit=50):
     """Preset files on disk whose path mentions the plug-in (vendor folders), by name/category."""
     words = [w for w in plugin.lower().replace("-", " ").split() if len(w) > 1]
-    found = []
-    for base in PRESET_DIRS:
+    found, seen = [], set()
+    for base in PRESET_DIRS if PRESET_DIRS is not None else platform_paths.preset_dirs():
         if not base.exists():
             continue
         depth0 = len(base.parts)
@@ -117,7 +142,12 @@ def presets(plugin, query=None, limit=50):
                 if f.startswith(".") or ext in NOT_PRESETS:
                     continue
                 if not query or all(t in (root + "/" + f).lower() for t in query.lower().split()):
-                    found.append({"name": Path(f).stem, "path": os.path.join(root, f), "loadable": ext in LOADABLE, "format": ext[1:]})
+                    path = os.path.join(root, f)
+                    key = os.path.normcase(os.path.realpath(path))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    found.append({"name": Path(f).stem, "path": path, "loadable": ext in LOADABLE, "format": ext[1:]})
                     if len(found) >= limit:
                         return {"plugin": plugin, "presets": found, "truncated": True}
     return {"plugin": plugin, "presets": found}
@@ -207,4 +237,19 @@ def load_state(track, device, preset=None, values=None, bundle_plugin=None):
         args += ["--set", "%s=%s" % (p["key"], v)]
     blobs = _host(*args, plugin=plugin)
     _edit_set(track, i, lambda dev: P.set_state(dev, blobs["processor_hex"], blobs["controller_hex"]))
-    return {"device": plugin, "loaded": preset or "parameter values", "bytes": len(blobs["processor_hex"]) // 2}
+    verified = {}
+    if values:
+        after = _bridge({"op": "device_params", "track": track, "device": i})
+        available = {p["name"].casefold(): p for p in after.get("params", [])}
+        for name, expected in values.items():
+            param = available.get(name.casefold())
+            if param is None:
+                raise VstError("state applied, but read-back is unavailable for %r; expose it and inspect before retrying" % name)
+            lo, hi = param.get("min", 0), param.get("max", 1)
+            actual = (param["value"] - lo) / (hi - lo) if hi != lo else param["value"]
+            if abs(actual - float(expected)) > 1e-5:
+                raise VstError("state applied, but read-back for %r is %s, expected %s; inspect before retrying" % (name, actual, expected))
+            verified[name] = actual
+    return {"device": plugin, "loaded": preset or "parameter values", "bytes": len(blobs["processor_hex"]) // 2,
+            "verified_parameters": verified,
+            "verification": "requested values read back from Live" if values else "preset state reopened; no expected values supplied for read-back"}

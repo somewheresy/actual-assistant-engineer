@@ -1,71 +1,32 @@
-// Open a .als in Live and wait until the Hermes bridge is serving the new Set.
-// Live asks whether to save the current Set first; `onUnsaved` decides the answer.
+// File operations use the shipped targeted UI, never global keystrokes.
 import { existsSync } from "node:fs";
-import { basename } from "node:path";
-import { liveBundle } from "../src/live/app";
-import { LiveClient, SOCK_PATH } from "../src/live/client";
-
-const osa = (...lines: string[]) => {
-  const r = Bun.spawnSync(["osascript", ...lines.flatMap((l) => ["-e", l])]);
-  return r.stdout.toString().trim();
-};
-const liveWindows = () => osa('tell application "System Events" to get name of windows of process "Live"');
-
+import { LiveClient } from "../src/live/client";
+import { PythonSession, pythonJson } from "../src/live/python";
+const sets = new PythonSession();
 export async function openSet(path: string, onUnsaved: "dont-save" | "cancel" = "cancel", timeoutMs = 60_000) {
-  const title = basename(path, ".als");
-  const t0 = performance.now();
-  Bun.spawnSync(["open", "-a", liveBundle(), path]);
-  let dialog: string | undefined;
-  while (performance.now() - t0 < timeoutMs) {
-    await Bun.sleep(250);
-    const prompt = osa('tell application "System Events" to tell process "Live" to get value of static text 1 of group 1 of window 1');
-    if (prompt.startsWith("This action will stop audio")) {
-      osa('tell application "System Events" to tell process "Live" to click (first button of group 1 of window 1 whose description is "OK")');
-      continue;
-    }
-    if (prompt.startsWith("Save changes")) {
-      dialog = prompt;
-      const button = onUnsaved === "dont-save" ? "Don" : "Cancel";
-      osa(`tell application "System Events" to tell process "Live" to click (first button of group 1 of window 1 whose description starts with "${button}")`);
-      if (onUnsaved === "cancel") throw new Error(`refusing to discard: ${prompt}`);
-      continue;
-    }
-    if (!liveWindows().split(", ").includes(title) || !existsSync(SOCK_PATH)) continue;
-    try {
-      const live = await new LiveClient().connect();
-      const info = await live.run<{ ok: boolean; tracks: number }>({ op: "info" });
-      return { live, info, dialog, ms: performance.now() - t0 };
-    } catch {
-      // Socket present but the new control-surface instance isn't serving yet.
-    }
-  }
-  throw new Error(`timed out opening ${path}`);
+  const start = performance.now();
+  const result = await sets.request<{ answered: string[] }>({ action: "open_set", path,
+    on_unsaved: onUnsaved === "dont-save" ? "discard" : "cancel" }, timeoutMs);
+  const live = await new LiveClient().connect();
+  try {
+    const info = await live.run<{ ok: boolean; tracks: number }>({ op: "info" });
+    return { live, info, dialog: result.answered.join("\n") || undefined, ms: performance.now() - start };
+  } catch (error) { live.close(); throw error; }
 }
-
-/** Save the open Set into `<dir>/<name> Project/<name>.als` via Save As (Live requires a Project folder). */
+/** Requires a file opened by this process; unknown titles are never guessed. */
 export async function saveSetAs(dir: string, name: string) {
-  osa('tell application "Live" to activate');
-  await Bun.sleep(300);
-  osa('tell application "System Events" to keystroke "s" using {command down, shift down}');
-  await Bun.sleep(1200);
-  osa('tell application "System Events" to keystroke "g" using {command down, shift down}');
-  await Bun.sleep(600);
-  osa(`tell application "System Events" to keystroke "${dir.replace(/"/g, '\\"')}"`, 'tell application "System Events" to key code 36');
-  await Bun.sleep(800);
-  osa('tell application "System Events" to keystroke "a" using command down', `tell application "System Events" to keystroke "${name.replace(/"/g, '\\"')}"`, 'tell application "System Events" to key code 36');
-  const path = `${dir}/${name} Project/${name}.als`;
-  for (let i = 0; i < 40; i++) {
-    await Bun.sleep(250);
-    if (existsSync(path)) return path;
-  }
-  throw new Error(`save did not produce ${path}`);
+  return (await sets.request<{ path: string }>({ action: "save_as", directory: dir, name })).path;
 }
-
-/** Screenshot Live's main window (Arrangement or Session, whichever is showing). */
+export function closeSetSession() { sets.close(); }
+/** Capture only Live's own window. Windows returns a new .bmp path, even for a .png request. */
 export function screenshotLive(path: string) {
-  // Capture Live's own window by id: works when it's behind other windows and never captures anything else.
+  if (process.platform === "win32") {
+    const bmp = /\.bmp$/i.test(path) ? path : path.replace(/\.[^./\\]+$/, "") + ".bmp";
+    return pythonJson<string>({ action: "screenshot", path: bmp });
+  }
+  if (process.platform !== "darwin") throw new Error("Live target-window capture is unsupported on this platform; no whole-screen fallback");
   const id = Bun.spawnSync(["./bin/window-id", "Live"]).stdout.toString().trim();
   if (!id) return undefined;
-  Bun.spawnSync(["screencapture", "-x", "-o", "-l", id, path]);
-  return existsSync(path) ? path : undefined;
+  const result = Bun.spawnSync(["screencapture", "-x", "-o", "-l", id, path]);
+  return result.exitCode === 0 && existsSync(path) ? path : undefined;
 }

@@ -5,15 +5,15 @@
   "type": "module",
   "scripts": {
     "assistant-engineer": "bun run src/cli.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "bun node_modules/typescript/lib/tsc.js --noEmit",
     "test": "bun test",
-    "test:bridge": "cd test/bridge && uv run --with pytest python -m pytest -q",
+    "test:bridge": "uv run --python 3.11 --with pytest python -m pytest -q test/bridge",
     "test:live": "bun test test/integration",
-    "build:native": "mkdir -p bin && for s in plugin/actual-assistant-engineer/native/*/main.swift; do swiftc -O \"$s\" -o \"bin/$(basename $(dirname $s))\"; done",
-    "install:live": "mkdir -p \"$HOME/Music/Ableton/User Library/Remote Scripts\" && ln -sfn \"$PWD/plugin/actual-assistant-engineer/live/Hermes\" \"$HOME/Music/Ableton/User Library/Remote Scripts/Hermes\" && echo 'Linked. In Live: Settings > Tempo & MIDI > Control Surface: Hermes'",
-    "install:hermes": "H=${HERMES_HOME:-$HOME/.hermes}; mkdir -p \"$H/plugins\" && ln -sfn \"$PWD/plugin/actual-assistant-engineer\" \"$H/plugins/actual-assistant-engineer\" && hermes plugins enable actual-assistant-engineer",
+    "build:native": "uv run --no-project --python 3.11 python scripts/developer.py build-native",
+    "install:live": "uv run --no-project --python 3.11 python scripts/developer.py install-live",
+    "install:hermes": "uv run --no-project --python 3.11 python scripts/developer.py install-hermes",
     "song": "bun run spike/run-song.ts",
-    "test:engine": "uv run --with pytest python -m pytest -q test/engine"
+    "test:engine": "uv run --python 3.11 --with pytest python -m pytest -q test/engine"
   },
   "devDependencies": {
     "@types/bun": "^1.4.2",

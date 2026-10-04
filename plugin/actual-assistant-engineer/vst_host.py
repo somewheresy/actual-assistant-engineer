@@ -16,12 +16,60 @@ import base64
 import json
 import re
 import sys
+import struct
+from pathlib import Path
+
+
+def windows_binary(path):
+    """Resolve the module inside a standard Windows VST3 bundle."""
+    path = Path(path)
+    if path.is_dir():
+        binaries = sorted(path.glob("Contents/*-win/*.vst3"))
+        # Prefer x64 when a bundle supplies several architectures (Prism compatible).
+        binaries.sort(key=lambda p: "x86_64-win" not in p.parts)
+        if not binaries:
+            raise ValueError("no Windows PE binary found in VST3 bundle: %s" % path)
+        path = binaries[0]
+    return path
+
+
+def binary_architecture(path):
+    """Read PE machine type without loading native code."""
+    path = windows_binary(path)
+    with path.open("rb") as stream:
+        header = stream.read(64)
+        if len(header) != 64 or header[:2] != b"MZ":
+            raise ValueError("not a Windows PE binary: %s" % path)
+        stream.seek(struct.unpack_from("<I", header, 60)[0])
+        pe = stream.read(6)
+    if len(pe) != 6 or pe[:4] != b"PE\0\0":
+        raise ValueError("invalid Windows PE header: %s" % path)
+    machine = struct.unpack_from("<H", pe, 4)[0]
+    arch = {0x8664: "x86_64", 0xAA64: "aarch64", 0x14C: "x86"}.get(machine)
+    if not arch:
+        raise ValueError("unsupported PE machine 0x%x in %s" % (machine, path))
+    return arch
 
 
 def load(path, name):
     import pedalboard
 
+    if sys.platform == "win32":
+        path = str(windows_binary(path))
     return pedalboard.load_plugin(path, plugin_name=name) if name else pedalboard.load_plugin(path)
+
+
+def flush_state(plugin):
+    """Apply queued VST3 processor changes before serializing state.
+
+    Processing is offline/in-memory only; no audio device is opened or MIDI note
+    sent. Some processors keep old values in raw_state until a process block.
+    """
+    if plugin.is_instrument:
+        plugin.process([], duration=0.01, sample_rate=44100, num_channels=2, reset=False)
+    else:
+        import numpy as np
+        plugin.process(np.zeros((2, 64), dtype=np.float32), sample_rate=44100, reset=False)
 
 
 def vst3_blobs(raw):
@@ -60,12 +108,20 @@ def _juce_b64(s):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("command", choices=["params", "state"])
-    ap.add_argument("path")
+    ap.add_argument("command", choices=["params", "state", "probe"])
+    ap.add_argument("path", nargs="?")
     ap.add_argument("--plugin")
     ap.add_argument("--preset")
     ap.add_argument("--set", action="append", default=[])
     a = ap.parse_args()
+    if a.command == "probe":
+        import pedalboard
+        import platform
+        json.dump({"python": sys.executable, "pedalboard": pedalboard.__version__,
+                   "architecture": binary_architecture(sys.executable) if sys.platform == "win32" else platform.machine()}, sys.stdout)
+        return
+    if not a.path:
+        ap.error("path is required for params/state")
     p = load(a.path, a.plugin)
     if a.command == "params":
         out = []
@@ -83,6 +139,8 @@ def main():
         k, v = kv.split("=", 1)
         param = p.parameters[k]
         param.raw_value = float(v)
+    if a.set or a.preset:
+        flush_state(p)
     proc, ctrl = vst3_blobs(p.raw_state)
     if not proc:
         raise SystemExit("could not extract VST3 component state from the host's state")

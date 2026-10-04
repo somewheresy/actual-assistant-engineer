@@ -2,7 +2,7 @@
 
 A Hermes plugin that operates Ableton Live as an assistant engineer. It creates and saves Sets, builds any instrument or effect structure, writes and arranges MIDI, automates clips and arrangement lanes, sidechains and mixes, works inside VST3 plug-ins, lays songs out in the Arrangement with named sections, and checks its own work until the track is complete. Every musical decision comes from the model Hermes is running; the plugin supplies the hands and the checks.
 
-macOS, Ableton Live 12.4+ (any edition). New here? Start with **[Getting started](docs/getting-started.md)**. Plan and status: [#1](https://github.com/somewheresy/actual-assistant-engineer/issues/1). Measurements: [docs/spike-results.md](docs/spike-results.md).
+macOS and Windows (including ARM64 Hermes with x64 Live under Prism), Ableton Live 12.4+ (any edition). Windows qualification status and prerequisites: [Windows setup](docs/windows.md). New here? Start with **[Getting started](docs/getting-started.md)**. Plan and status: [#1](https://github.com/somewheresy/actual-assistant-engineer/issues/1). Measurements: [docs/spike-results.md](docs/spike-results.md).
 
 ## Install
 
@@ -28,7 +28,7 @@ delegation:
   oneshot_max_children: 4
 ```
 
-Requirements: macOS; Ableton Live 12.4+; Hermes Agent 0.21+ with a tool-calling model; Accessibility permission for the app running Hermes (used only to click Live's own File menu items and dialog buttons). Xcode command line tools are optional (helpers for the MIDI performance port and window screenshots).
+Requirements: macOS or Windows; Ableton Live 12.4+; Hermes Agent 0.21+ with a tool-calling model; Accessibility permission for the app running Hermes (used only to click Live's own File menu items and dialog buttons). Xcode command line tools are optional (helpers for the MIDI performance port and window screenshots).
 
 ## Use
 
@@ -71,7 +71,8 @@ Locally hosted models are for iterative requests, not whole-song building. When 
 ```
 Hermes (any tool-calling model)
   └─ plugin/actual-assistant-engineer            8 tools, assistant-engineer skill, `hermes assistant-engineer` CLI
-        │  owner-only Unix socket, newline-delimited JSON batches (no network ports)
+        │  macOS: owner-only Unix socket; Windows: authenticated IPv4 loopback
+        │  JSON batches; Windows endpoint/key file restricted to the current user
         ▼
 Ableton Live ── "Hermes" control surface (bundled; runs inside Live's Python)
         • each batch runs on Live's main thread as one undo step and returns read-back results
