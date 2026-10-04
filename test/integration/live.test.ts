@@ -2,7 +2,7 @@
 // Runs only when Live is up with the Hermes control surface; uses only "Hermes IT " tracks.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { LiveClient, SOCK_PATH, type Op } from "../../src/live/client";
+import { LiveClient, ENDPOINT_PATH, type Op } from "../../src/live/client";
 
 const P = "Hermes IT ";
 const M = `${P}Midi`, A = `${P}Audio`, K = `${P}Kick`, S = `${P}Synth`;
@@ -19,7 +19,7 @@ const cleanup = async () => {
   if (ops.length) await live.batch(ops);
 };
 
-describe.skipIf(!existsSync(SOCK_PATH))("Hermes bridge against Live", () => {
+describe.skipIf(!existsSync(ENDPOINT_PATH))("Hermes bridge against Live", () => {
   beforeAll(async () => {
     live = await new LiveClient().connect();
     await cleanup();

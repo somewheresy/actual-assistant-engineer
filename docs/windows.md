@@ -63,7 +63,9 @@ Offline hosting inspects the PE architecture of a `.vst3` binary/bundle and sele
 
 - Python regression, Windows ACL, real loopback transport, setup/discovery fixtures, Set safety, and worker dispatch tests: exercised on this Windows host.
 - UIA dependency import under x64 Python/Prism: exercised.
-- Real Ableton bridge selection, create/open/save/dialog controls, arrangement round trip, third-party VST load/state, and audible playback: **pending live qualification**.
+- Official Live 12.4.6 Windows trial: installer signature verified; installed on Windows 11 ARM64, including the ARM audio driver. Installer requests restart (not performed automatically).
+- Real Live executable/resource/template discovery, launch under Prism, Set-title readback, and detection of its embedded trial-activation dialog: exercised. Control-surface copy verified byte-for-byte on disk.
+- Trial activation, bridge selection, create/open/save/dialog controls, arrangement round trip, third-party VST load/state, and audible playback: **pending live qualification**.
 - macOS runtime regression: platform-mocked tests only on this host; actual macOS execution still required.
 - Swift MIDI-performance and screenshot helpers remain macOS-only. Their absence does not disable the eight core tools. Windows performance input can use the authenticated socket and Live's existing MIDI input path; no bundled Windows virtual-MIDI driver is installed.
 - Audio export/analysis were not implemented upstream and are not added by this OS port.

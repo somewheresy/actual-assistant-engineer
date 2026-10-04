@@ -4,7 +4,7 @@ This guide takes you from nothing to Hermes building a finished track in Ableton
 
 ## 1. What you need
 
-- A Mac with **Ableton Live 12.4 or later** (any edition: Intro, Standard, Suite).
+- macOS or Windows with **Ableton Live 12.4 or later** (any edition). Windows users must read [Windows setup and qualification](windows.md): the original macOS-only catalog pin does not contain this port.
 - **[Hermes Agent](https://github.com/NousResearch/hermes-agent) 0.21 or later**, set up with a model that supports tool calling. Check with `hermes --version`.
 - Optional: Xcode command line tools (`xcode-select --install`), for the MIDI performance port and screenshots.
 

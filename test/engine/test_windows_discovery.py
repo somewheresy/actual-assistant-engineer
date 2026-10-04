@@ -63,6 +63,8 @@ def test_running_custom_install_is_preferred_and_helpers_ignored(tmp_path, monke
     exe = tmp_path / "Portable" / "Program" / "Ableton Live 11 Lite.exe"
     exe.parent.mkdir(parents=True)
     exe.touch()
+    installer = tmp_path / "Ableton Live 12 Trial Installer.exe"
+    installer.touch()
     monkeypatch.delenv("AAE_LIVE_PATH", raising=False)
     calls = []
 
@@ -75,6 +77,7 @@ def test_running_custom_install_is_preferred_and_helpers_ignored(tmp_path, monke
                 "returncode": 0,
                 "stdout": json.dumps(
                     [
+                        {"ExecutablePath": str(installer)},
                         {"ExecutablePath": str(exe.with_name("Ableton Index.exe"))},
                         {"ExecutablePath": str(exe)},
                     ]

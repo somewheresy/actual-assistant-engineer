@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "assistant-engineer": "bun run src/cli.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "bun node_modules/typescript/lib/tsc.js --noEmit",
     "test": "bun test",
     "test:bridge": "uv run --python 3.11 --with pytest python -m pytest -q test/bridge",
     "test:live": "bun test test/integration",

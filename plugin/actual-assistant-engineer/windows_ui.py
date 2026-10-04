@@ -78,8 +78,12 @@ class LiveUI:
             raise UIError("Live's main Set window is inaccessible or ambiguous")
         window = main[0]
         descendants = window.descendants()
-        nested = [w for w in descendants if w.element_info.control_type == "Window" and
-                  w.is_visible() and w.iface_window.CurrentIsModal]
+        nested = [w for w in descendants if w.is_visible() and (
+            (w.element_info.control_type == "Window" and w.iface_window.CurrentIsModal)
+            # Live's licensing/save overlays can be native child Pane HWNDs,
+            # not UIA WindowPattern modals. Never mistake these for a clear Set.
+            or (w.element_info.control_type == "Pane" and w.element_info.handle
+                and w.descendants(control_type="TitleBar")))]
         dialogs = []
         for w in [w for w in windows if w is not window] + nested:
             self._scope(w, process["pid"])

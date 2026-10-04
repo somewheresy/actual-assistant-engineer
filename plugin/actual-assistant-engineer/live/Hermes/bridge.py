@@ -35,6 +35,8 @@ class Client:
         self.subscribed = False
         self.first_byte = None
         self.last_activity = time.monotonic()
+        self.accepted_at = self.last_activity
+        self.authenticated = False
 
 
 class Hermes(ControlSurface):
@@ -56,6 +58,11 @@ class Hermes(ControlSurface):
         self._server = self._listener.socket
 
     def _poll(self):
+        # Expire unauthenticated sockets before admission, even if they trickle
+        # bytes. Local processes without the key must not retain all eight slots.
+        for client in list(self._clients):
+            if transport.WINDOWS and not client.authenticated and time.monotonic() - client.accepted_at > 1.0:
+                self._drop(client)
         for _ in range(MAX_CLIENTS):
             try:
                 conn, address = self._server.accept()
@@ -130,6 +137,7 @@ class Hermes(ControlSurface):
             return {"ok": False, "error": "bad json: %s" % e}
         if not isinstance(req, dict):
             return {"ok": False, "error": "request must be an object"}
+        client.authenticated = True
         rid = req.get("id")
 
         if req.get("subscribe"):

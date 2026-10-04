@@ -68,7 +68,7 @@ def bundle():
                 value = row.get("ExecutablePath")
                 if value:
                     path = Path(value)
-                    if re.fullmatch(r"Ableton Live.*\.exe", path.name, re.I) and path.is_file():
+                    if re.fullmatch(r"Ableton Live \d+(?:\.\d+)*(?: (?:Suite|Standard|Intro|Lite|Trial))?\.exe", path.name, re.I) and path.is_file():
                         return path
         except (OSError, ValueError, subprocess.TimeoutExpired):
             pass
